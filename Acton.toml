@@ -1,0 +1,46 @@
+[package]
+name = "nominator-v2"
+description = "A TON blockchain project"
+version = "0.1.0"
+license = "MIT"
+
+[toolchain]
+acton = "1.1.0"
+
+[contracts.Pool]
+display-name = "Pool"
+src = "contracts/Pool.tolk"
+depends = ["PayoutItem", "Proxy"]
+
+[contracts.PayoutItem]
+display-name = "PayoutItem"
+src = "contracts/PayoutItem.tolk"
+
+[contracts.Proxy]
+display-name = "Proxy"
+src= "contracts/Proxy.tolk"
+
+[contracts.Elector]
+display-name = "Elector"
+src="contracts/elector-code.boc"
+types="contracts/Elector.types.tolk"
+
+[test]
+
+[fmt]
+width = 100
+ignore = []
+
+[scripts]
+deploy-emulation = "acton script scripts/deploy.tolk"
+deploy-testnet = "acton script scripts/deploy.tolk --net testnet"
+
+[import-mappings]
+acton = ".acton"
+contracts = "contracts"
+gen = "gen"
+tests = "tests"
+wrappers = "wrappers"
+
+# Check full Acton.toml reference and all available keys:
+# https://ton-blockchain.github.io/acton/docs/acton-toml

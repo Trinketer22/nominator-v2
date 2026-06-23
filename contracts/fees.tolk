@@ -1,0 +1,24 @@
+const POOL_MIN_STORAGE = ton("10")
+const REFUND_THRESHOLD = ton("1")
+const MAX_RECOVERY_VALUE = ton("1")
+const MAX_ROTATION_VALUE = ton("1")
+const DEPOSIT_GAS = ton("0.2")
+const WITHDRAWAL_GAS = DEPOSIT_GAS
+const NEW_STAKE_FEE = ton("1")
+const RECOVER_STAKE_FEE = ton("0.1")
+const NEW_VALIDATOR_FEE = ton("0.1")
+const PROXY_MIN_STORAGE = ton("10")
+const PROXY_INIT_VALUE = ton("0.1")
+const PAYOUT_ITEM_BALANCE = ton("0.05")
+
+const NEW_STAKE_ERROR_GAS = 35000
+const RECOVER_STAKE_GAS: int = 26000
+const REFUND_BONUS_GAS: int = 100000
+const RECOVER_STAKE_OK_GAS: int = 50000
+/*
+const RECOVER_STAKE_OK_GAS: int = 44000;
+const UPDATE_VSET_GAS =25000
+const PAYOUT_BURN_NOTIFICATION = 21000;
+const PAYOUT_INIT_GAS = 5000;
+const PAYOUT_BURN_GAS = 6000;
+*/

@@ -1,0 +1,218 @@
+// Generated from contracts/messages.tolk
+// Includes dependent serialized types from contracts/types.tolk
+
+bool_false$0 = Bool;
+bool_true$1 = Bool;
+
+nothing$0 {X:Type} = Maybe X;
+just$1 {X:Type} value:X = Maybe X;
+
+var_uint$_ {n:#} len:(#< n) value:(uint (len * 8)) = VarUInteger n;
+nanograms$_ amount:(VarUInteger 16) = Grams;
+_ grams:Grams = Coins;
+
+anycast_info$_ depth:(#<= 30) { depth >= 1 }
+  rewrite_pfx:(bits depth) = Anycast;
+addr_std$10 anycast:(Maybe Anycast)
+  workchain_id:int8 address:bits256 = MsgAddressInt;
+
+// Strict internal-or-none helper for Tolk `address?` fields.
+addr_none$00 = MsgAddressIntOrNone;
+addr_std_or_none$100 workchain_id:int8 address:bits256 = MsgAddressIntOrNone;
+
+validator_signature$_ signature:bits512 = ValidatorSignature;
+round_allowance$_ value:uint2 = RoundAllowance;
+
+validator_limit_ton$0 max_ton:Grams = ValidatorLimit;
+validator_limit_share$1 max_share:uint25 = ValidatorLimit;
+
+global_validators_limit$_
+  min_ton_per_validator:Grams
+  max_ton_per_validator:Grams
+  max_refund:Grams
+= GlobalValidatorsLimit;
+
+global_nominators_limit$_
+  min_stake:Grams
+  max_nm:uint10
+= GlobalNominatorsLimit;
+
+validator_specific$_
+  validator:MsgAddressInt
+  limit:ValidatorLimit
+= ValidatorSpecific;
+
+update_limit_global_validators$00 value:GlobalValidatorsLimit = UpdateLimit;
+update_limit_global_nominators$01 value:GlobalNominatorsLimit = UpdateLimit;
+update_limit_validator_specific$10 value:ValidatorSpecific = UpdateLimit;
+
+nominators_settings$_
+  max_nominators:uint10
+  min_stake:Grams
+  min_withdrawable_rewards:Grams
+= NominatorsSettings;
+
+distribution$_ pending_share:Grams pending_coins:Grams = Distribution;
+
+round_info$_
+  used:Grams
+  returned:Grams
+  round_index:uint64
+= RoundInfo;
+
+refund_context$_
+  query_id:uint64
+  op:uint32
+  error_code:uint32
+  additional_ctx:(Maybe ^Cell)
+= RefundContext;
+
+proxy_response_data$_
+  validator:MsgAddressInt
+  parity:Bool
+= ProxyResponseData;
+
+init_pool_message#73cb21e6
+  query_id:uint64
+  main_validator:MsgAddressInt
+  round_allowance:RoundAllowance
+  limit:(Maybe ValidatorLimit)
+  owner_share:uint25
+  max_ton_per_validator:Grams
+  min_ton_per_validator:Grams
+  max_refund:Grams
+  nominators_settings:^NominatorsSettings
+= InitPoolMessage;
+
+init_pool_success#d9478669 query_id:uint64 = InitPoolSuccess;
+
+text_comment#00000000 comment:^Cell = TextComment;
+
+deposit_message#00000064 = DepositMessage;
+deposit_success#1d462054 query_id:uint64 = DepositSuccess;
+withdrawal_message#00000077 = WithdrawalMessage;
+withdrawal_reward#00000072 = WithdrawalReward;
+
+withdraw_success#ac9a3b31
+  query_id:uint64
+  total_staked:Grams
+  returned:Grams
+  left:Grams
+= WithdrawSuccess;
+
+update_vset#00000007 query_id:uint64 = UpdateVset;
+
+new_stake#4e73744b
+  query_id:uint64
+  value:Grams
+  signed_body:^Cell
+= NewStake;
+
+new_stake_body$_
+  public_key:uint256
+  stake_at:uint32
+  max_factor:uint32
+  adnl:uint256
+  signature:^ValidatorSignature
+= NewStakeBody;
+
+new_stake_elector#4e73744b
+  query_id:uint64
+  body:^Cell
+= NewStakeElector;
+
+new_stake_direct#4e73744b
+  query_id:uint64
+  public_key:uint256
+  stake_at:uint32
+  max_factor:uint32
+  adnl:uint256
+  signature:^ValidatorSignature
+= NewStakeDirect;
+
+new_stake_ok#f374484c
+  query_id:uint64
+  answer:uint32
+  remaining:^Cell
+= NewStakeOk;
+
+new_stake_error#ee6f454c
+  query_id:uint64
+  reason:uint32
+  remaining:^Cell
+= NewStakeError;
+
+recover_stake_compat#47657424 query_id:uint64 = RecoverStakeCompat;
+
+recover_stake_unrestricted#47657442
+  query_id:uint64
+  validator:MsgAddressInt
+  amount:Grams
+= RecoverStakeUnrestricted;
+
+recover_stake_ok#f96f7324
+  query_id:uint64
+  remaining:^Cell
+= RecoverStakeOk;
+
+recover_stake_error#fffffffe
+  query_id:uint64
+  answer:uint32
+  remaining:^Cell
+= RecoverStakeError;
+
+init_proxy#7e522889
+  query_id:uint64
+  response:MsgAddressInt
+= InitProxy;
+
+proxy_init_successfull#09f8fbfa
+  query_id:uint64
+  validator:MsgAddressInt
+  parity:Bool
+= ProxyInitSuccessfull;
+
+proxy_refund_wrong_sender#326d84c1 query_id:uint64 = ProxyRefundWrongSender;
+
+payout_init_message#f8e41961
+  query_id:uint64
+  is_withdrawal:Bool
+  owner:MsgAddressInt
+  round_index:uint64
+  prev:MsgAddressIntOrNone
+  next:MsgAddressIntOrNone
+= PayoutInitMessage;
+
+payout_burn_message#53899a1b query_id:uint64 distribution:Distribution = PayoutBurnMessage;
+
+payout_burn_notification#42a73984
+  query_id:uint64
+  is_withdrawal:Bool
+  owner:MsgAddressInt
+  index:uint64
+  round_index:uint64
+  distribution:Distribution
+= PayoutBurnNotification;
+
+stake_returned#d6d1ff31
+  query_id:uint64
+  validator:MsgAddressInt
+  used:Grams
+  returned:Grams
+= StakeReturned;
+
+refund_message#21a6a2b3 context:RefundContext = RefundMessage;
+
+add_validator#219d71f5
+  query_id:uint64
+  validator:MsgAddressInt
+  round_allowance:RoundAllowance
+  limits:(Maybe ValidatorLimit)
+= AddValidator;
+
+remove_validator#219d71f4 query_id:uint64 validator:MsgAddressInt = RemoveValidator;
+add_funds#219d71f3 query_id:uint64 = AddFunds;
+owner_withdrawal#219d71f2 query_id:uint64 amount:Grams = OwnerWithdrawal;
+update_limits#219d71f1 query_id:uint64 limit:UpdateLimit = UpdateLimits;
+owner_withdrawal_success#219d71ef query_id:uint64 = OwnerWithdrawalSuccess;
+round_info_message#e4649054 query_id:uint64 info:RoundInfo = RoundInfoMessage;

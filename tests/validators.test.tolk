@@ -1,0 +1,1333 @@
+import "@stdlib/gas-payments"
+import "@stdlib/lisp-lists"
+import "@stdlib/tvm-lowlevel"
+import "@acton/build"
+import "@acton/io"
+import "@acton/emulation/config"
+import "@acton/emulation/network"
+import "@acton/emulation/testing"
+import "@acton/testing/expect"
+import "@acton/tlb/maybe"
+import "@acton/types/message"
+import "@acton/types/transaction"
+import "@contracts/config"
+import "@contracts/errors"
+
+import "@contracts/fees"
+import "@contracts/messages"
+import "@contracts/opcode"
+import "@contracts/types"
+import "@tests/deploy-utils"
+import "@tests/elector-utils"
+import "@tests/matchers"
+import "@tests/pool-utils"
+import "@tests/proxy-utils"
+import "@tests/test-utils"
+import "@wrappers/ElectorCode.gen"
+import "@wrappers/Pool.gen"
+import "@wrappers/Proxy.gen"
+
+get fun `test validator allowed for only even/odd rounds, should only stake in allowed rounds`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, owner, _notOwner, validator, _nominators) = setupPoolWithNominators(20);
+
+    val maxPunishment = pool.getMaxPunishment(0);
+    val minValue = maxPunishment + PROXY_MIN_STORAGE * 2 + ton("1");
+
+    val queryId = random.range(128);
+    val evenRoundValidator = address.fromWorkchainAndHash(MASTERCHAIN, random.uint256());
+    val oddRoundValidator: address = address.fromWorkchainAndHash(MASTERCHAIN, random.uint256());
+
+    pool.sendAddValidator(
+        owner.address,
+        queryId,
+        evenRoundValidator,
+        RoundAllowance.InEvenRounds,
+        null,
+        { value: minValue },
+    );
+    pool.sendAddValidator(
+        owner.address,
+        queryId,
+        oddRoundValidator,
+        RoundAllowance.InOddRounds,
+        null,
+        { value: minValue },
+    );
+
+    val elections = announceElections(elector);
+    val minStake = stakes.minStake * 2;
+
+    // Round 0 is even
+    // Even validator should succeed
+    assertPoolNewStake(evenRoundValidator, pool, elector, elections, minStake);
+    val evenValidatorData = pool.getValidatorInfo(evenRoundValidator);
+    expect(evenValidatorData.validator.usageState & 1).toEqual(0);
+    expect(evenValidatorData.validator.usageState & 2).toEqual(2);
+    // Validator that allowed only for odd rounds, should fail
+    assertNewStakeFailed(
+        ErrorsPool.RoundNotAllowed,
+        oddRoundValidator,
+        pool,
+        elector.address,
+        elections,
+        minStake,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        elections,
+    );
+
+    val poolRoundOne = pool.getPoolData();
+    val _validators = poolRoundOne.validators.load();
+    expect(poolRoundOne.roundIndex).toEqual(1);
+    // Now odd round
+    // Even one fails
+    val nextElections = announceElections(elector);
+    assertNewStakeFailed(
+        ErrorsPool.RoundNotAllowed,
+        evenRoundValidator,
+        pool,
+        elector.address,
+        nextElections,
+        minStake,
+    );
+    // Odd one succeeds
+    assertPoolNewStake(oddRoundValidator, pool, elector, nextElections, minStake);
+    val oddValidatorData = pool.getValidatorInfo(oddRoundValidator);
+    expect(oddValidatorData.validator.usageState & 1).toEqual(1);
+    expect(oddValidatorData.validator.usageState & 2).toEqual(0);
+}
+
+get fun `test only added validator could stake`() {
+    val (elector, stakes, _limits) = setupElector();
+    val (pool, _owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(20);
+
+    val minStake = stakes.minStake * 2;
+
+    val poolBefore = pool.getPoolData();
+    val validators = lazy poolBefore.validators.load();
+
+    val testValidator = getDifferentAddress(validators.mainValidatorAddress);
+
+    val elections = announceElections(elector);
+    assertNewStakeFailed(
+        ErrorsPool.ValidatorNotFound,
+        testValidator,
+        pool,
+        elector.address,
+        elections,
+        minStake,
+    );
+}
+
+get fun `test validator ton limit should affect amount of stake allowed to be taken`() {
+    val (elector, _stakes, _limits) = setupElector();
+    val (pool, owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(100);
+
+    val (_ownerShare, validatorsSettings, _nominatorsSettings) = defaultDeployParams();
+    val maxStake = validatorsSettings.minTonPerValidator + ton("1000");
+
+    val testValidator = setupRandomValidator(
+        pool,
+        owner.address,
+        ValidatorLimitTon { maxTon: maxStake },
+    );
+
+    val elections = announceElections(elector);
+    assertNewStakeFailed(
+        ErrorsPool.StakeAboveTheLimit,
+        testValidator,
+        pool,
+        elector.address,
+        elections,
+        maxStake + 1,
+    );
+    assertNewStakeFailed(
+        ErrorsPool.StakeBelowLimit,
+        testValidator,
+        pool,
+        elector.address,
+        elections,
+        validatorsSettings.minTonPerValidator - 1,
+    );
+    assertPoolNewStake(testValidator, pool, elector, elections, maxStake);
+}
+
+get fun `test validator share limit should affect amount of stake allowed to be taken`() {
+    val (elector, _stakes, _limits) = setupElector();
+    val (pool, owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(10);
+
+    val (_ownerShare, _validatorsSettings, _nominatorsSettings) = defaultDeployParams();
+    val maxShare = SHARE_BASE / 5; // 20%
+
+    val testValidator = setupRandomValidator(pool, owner.address, ValidatorLimitShare { maxShare });
+
+    val availableFunds = testing.getAccountBalance(pool.address) - POOL_MIN_STORAGE;
+    val maxStake = mulDivFloor(availableFunds, maxShare, SHARE_BASE); //awailableFunds / 5;
+
+    val elections = announceElections(elector);
+    assertNewStakeFailed(
+        ErrorsPool.StakeAboveTheLimit,
+        testValidator,
+        pool,
+        elector.address,
+        elections,
+        maxStake + 1,
+    );
+    assertPoolNewStake(testValidator, pool, elector, elections, maxStake - 1);
+}
+
+get fun `test shoulld reject new stake when balance is below the requested value`() {
+    val (elector, _stakes, _limits) = setupElector();
+    var (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(10);
+
+    val (_ownerShare, validatorsSettings, _nominatorsSettings) = defaultDeployParams();
+
+    val availableFunds = testing.getAccountBalance(pool.address) - POOL_MIN_STORAGE;
+    expect(validatorsSettings.maxTonPerValidator).toBeGreater(availableFunds);
+
+    val elections = announceElections(elector);
+    assertNewStakeFailed(
+        ErrorsPool.NotEnoughPoolBalance,
+        validator,
+        pool,
+        elector.address,
+        elections,
+        validatorsSettings.maxTonPerValidator,
+    );
+
+    assertPoolDepositInstant(
+        pool,
+        nominators.popHead(),
+        validatorsSettings.maxTonPerValidator - availableFunds + DEPOSIT_GAS,
+    );
+
+    assertPoolNewStake(validator, pool, elector, elections, validatorsSettings.maxTonPerValidator);
+}
+
+get fun `test should not be able to stake when round is closed`() {
+    val (elector, stakes, limits) = setupElector();
+    var (pool, owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    // Just for illustative purposes granting all rounds allowance explicitly
+    val additionalValidator = setupRandomValidator(
+        pool,
+        owner.address,
+        null,
+        RoundAllowance.InAllRounds,
+    );
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+
+    val elections = announceElections(elector);
+    assertNewStakeFailed(
+        ErrorsPool.RoundIsClosed,
+        additionalValidator,
+        pool,
+        elector.address,
+        elections,
+        stakes.minStake * 2,
+    );
+}
+
+get fun `test should not be able to stake twice in a same round`() {
+    val (elector, stakes, _limits) = setupElector();
+    var (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    val elections = announceElections(elector);
+    assertPoolNewStake(validator, pool, elector, elections, stakes.minStake * 2);
+    assertNewStakeFailed(
+        ErrorsPool.AlreadyStakedInThatRound,
+        validator,
+        pool,
+        elector.address,
+        elections,
+        stakes.minStake * 2,
+    );
+}
+
+get fun `test should not allow to stake before the elections started`() {
+    val (elector, stakes, _limits) = setupElector();
+    var (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    val electionsTiming = getElectionsTiming();
+
+    // It is tedious to update the current time, because of account last tx time
+    // So we update the vset itself
+    var config = testing.getConfig();
+    var currentVset = ValidaorSet.fromCell(config.getParamRaw(CUR_VSET_IDX));
+    currentVset.utimeUntil = testing.getNow() + electionsTiming.startBefore;
+
+    config.setParamRaw(CUR_VSET_IDX, currentVset.toCell());
+    testing.setConfig(config);
+
+    assertNewStakeFailed(
+        ErrorsPool.ElectionsNotStarted,
+        validator,
+        pool,
+        elector.address,
+        0,
+        stakes.minStake * 2,
+    );
+}
+
+get fun `test should not allow to stake after the elections ended`() {
+    val (elector, stakes, _limits) = setupElector();
+    var (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    val electionsTiming = getElectionsTiming();
+
+    // It is tedious to update the current time, because of account last tx time
+    // So we update the vset itself
+    var config = testing.getConfig();
+    var currentVset = ValidaorSet.fromCell(config.getParamRaw(CUR_VSET_IDX));
+    currentVset.utimeUntil = testing.getNow() + electionsTiming.endBefore;
+
+    config.setParamRaw(CUR_VSET_IDX, currentVset.toCell());
+    testing.setConfig(config);
+
+    assertNewStakeFailed(
+        ErrorsPool.ElectionsAlreadyEnded,
+        validator,
+        pool,
+        elector.address,
+        0,
+        stakes.minStake * 2,
+    );
+}
+
+get fun `test new stake should treat pending amounts as not available when allowing stakes`() {
+    val (elector, _stakes, _limits) = setupElector();
+    val (pool, owner, _notOwner, vaidator) = setupDeployedPool();
+
+    val (_ownerShare, validatorsSettings, _nominatorsSettings) = defaultDeployParams();
+
+    val additionalValidator = setupRandomValidator(pool, owner.address);
+
+    val poorFella1 = testing.treasury("Fella 1");
+    val poorFella2 = testing.treasury("Fella 2");
+    val poorFella3 = testing.treasury("Fella 3");
+    val fatCat = testing.treasury("FatCat");
+
+    assertPoolDepositInstant(
+        pool,
+        poorFella1.address,
+        validatorsSettings.minTonPerValidator + DEPOSIT_GAS,
+    );
+    assertPoolDepositInstant(
+        pool,
+        poorFella2.address,
+        validatorsSettings.minTonPerValidator + DEPOSIT_GAS,
+    );
+    assertPoolDepositInstant(
+        pool,
+        poorFella3.address,
+        validatorsSettings.minTonPerValidator + DEPOSIT_GAS,
+    );
+    assertPoolDepositInstant(
+        pool,
+        fatCat.address,
+        validatorsSettings.maxTonPerValidator + DEPOSIT_GAS,
+    );
+
+    val elections = announceElections(elector);
+
+    assertPoolNewStake(
+        vaidator,
+        pool,
+        elector,
+        elections,
+        validatorsSettings.minTonPerValidator * 4,
+    );
+
+    // Now if fatCat wants out, he has to wait till the round closure.
+    assertDelayedOperation(pool, fatCat.address, true);
+
+    // Which means there is technically still a lottamoney in da pool
+    val poolBalance = testing.getAccountBalance(pool.address);
+    expect(poolBalance - POOL_MIN_STORAGE).toBeGreater(validatorsSettings.minTonPerValidator * 2);
+
+    // Even though request is just half the balance
+    assertNewStakeFailed(
+        ErrorsPool.NotEnoughPoolBalance,
+        additionalValidator,
+        pool,
+        elector.address,
+        elections,
+        validatorsSettings.minTonPerValidator,
+    );
+}
+
+get fun `test pool should account for slashing reserves from owner share`() {
+    val (elector, stakes, limits) = setupElector();
+    var (pool, owner, _notOwner, validator, _nominators) = setupPoolWithNominators(40);
+
+    val stake = stakes.minStake * 2;
+    var elections = announceElections(elector);
+
+    val otherValidator = setupRandomValidator(pool, owner.address);
+
+    // But the reserve for 3 slots are still in a pool, so so far so good
+    assertPoolNewStake(validator, pool, elector, elections, stake);
+
+    // Since there was no explicit AddFunds, owner only has maxPunishment * 4 slots
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        otherValidator,
+        elections,
+        false,
+    );
+    elections = announceElections(elector);
+
+    // Any kidn owner withdrawal won't allow for the 4-th slot to be used
+    pool.sendOwnerWithdrawal(owner.address, DEFAULT_QUERY_ID, ton("5"), { value: ton("1") });
+
+    assertPoolNewStake(validator, pool, elector, elections, stake);
+
+    val poolData = pool.getPoolData();
+    val validators = lazy poolData.validators.load();
+    expect(validators.activeSlots).toEqual(3);
+    // But a fourth will fail
+    assertNewStakeFailed(
+        ErrorsPool.OwnerShareIsUndercapitalized,
+        otherValidator,
+        pool,
+        elector.address,
+        elections,
+        stake,
+    );
+}
+
+get fun `test should not allow new stake messages without queryId`() {
+    val (elector, _stakes, _limits) = setupElector();
+    var (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    // In that case pool won't get notification back from the elector.
+
+    val elections = announceElections(elector);
+    val stateBefore = getAccountData(pool.address);
+    val res = pool.sendNewStake(validator, 0, ton("1"), getSignedBody(elections));
+
+    expect(res).toHaveRefund<NewStake>({
+        from: pool.address,
+        to: validator,
+        error: ErrorsPool.QueryIdRequired,
+        previousState: stateBefore,
+    });
+}
+
+get fun `test pool should not accept malformed NewStake messages`() {
+    val (elector, stakes, _limits) = setupElector();
+    var (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    val elections = announceElections(elector);
+
+    val signedBody = getSignedBody(elections);
+    var noSignature = signedBody;
+    var validBody = signedBody;
+    val excessiveBody = beginCell().storeSlice(noSignature).storeString("moardata").endCell();
+    // copy
+
+    noSignature.loadRef();
+
+    val truncatedBody = beginCell()
+        .storeSlice(validBody.loadBits(validBody.remainingBitsCount() - 1))
+        .endCell();
+
+    val noSigMsg = createMessage({
+        bounce: true,
+        dest: pool.address,
+        value: ton("1"),
+        body: NewStake {
+            value: stakes.minStake * 2,
+            queryId: DEFAULT_QUERY_ID,
+            signedBody: noSignature,
+        },
+    });
+
+    val truncatedMsg = createMessage({
+        bounce: true,
+        dest: pool.address,
+        value: ton("1"),
+        body: NewStake {
+            value: stakes.minStake * 2,
+            queryId: DEFAULT_QUERY_ID,
+            signedBody: truncatedBody.beginParse(),
+        },
+    });
+
+    val excessiveMsg = createMessage({
+        bounce: true,
+        dest: pool.address,
+        value: ton("1"),
+        body: NewStake {
+            value: stakes.minStake * 2,
+            queryId: DEFAULT_QUERY_ID,
+            signedBody: excessiveBody.beginParse(),
+        },
+    });
+
+    val stateBefore = getAccountData(pool.address);
+    var res = net.send(validator, noSigMsg);
+    expect(
+        res,
+    ).toHaveRefund<NewStake>({ from: pool.address, to: validator, error: VmExitCode.CellUnderflow });
+
+    res = net.send(validator, truncatedMsg);
+    expect(
+        res,
+    ).toHaveRefund<NewStake>({ from: pool.address, to: validator, error: VmExitCode.CellUnderflow });
+
+    res = net.send(validator, excessiveMsg);
+    expect(
+        res,
+    ).toHaveRefund<NewStake>({ from: pool.address, to: validator, error: VmExitCode.CellUnderflow, previousState: stateBefore });
+}
+
+get fun `test validator with 2 round allowance should be able to stake in two rounds in a row`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(100);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+}
+
+get fun `test validator should be able to recover stake and rotate round`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, owner, _notOwner, validator, _nominators) = setupPoolWithNominators(100);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+
+    val valStateBefore = pool.getValidatorInfo(validator);
+    val poolBefore = pool.getPoolData();
+    val validators = poolBefore.validators.load();
+    var prevRound = valStateBefore.usage.prevRoundUsage!;
+    val expectedProxy = prevRound.proxy;
+
+    expect(prevRound != null).toBeTrue();
+    expect(prevRound.usage.rotation.rotationCount).toEqual(2);
+
+    val res = waitAndRecoverStake(pool, validator, elector.address);
+    // pool.sendRecoverStakeCompat(validator, DEFAULT_QUERY_ID, {value: ton("1")});
+    val poolAfter = pool.getPoolData();
+    // println(res);
+    var recoverTx = res.findTransaction({
+        from: expectedProxy,
+        to: pool.address,
+        opcode: opcode<RecoverStakeOk>(),
+    });
+
+    expect(recoverTx != null).toBeTrue();
+    expect(recoverTx!.outmsgCnt).toEqual(2);
+    val inMsg = recoverTx!.loadInMsg<RecoverStakeOk>();
+    var profit = getInternalMessageValue(inMsg.info).grams - prevRound.usage.tonUsed;
+    expect(profit).toBeGreater(0);
+    val refundBonus = calculateGasFee(BASECHAIN, REFUND_BONUS_GAS);
+    profit -= calculateGasFee(BASECHAIN, RECOVER_STAKE_OK_GAS) + refundBonus +
+    valStateBefore.validator.refundAmount;
+
+    val ownerProfit = mulDivFloor(profit, poolBefore.ownerShare, SHARE_BASE);
+    val nominatorsProfit = profit - ownerProfit;
+    //println("Owner profit {}", ownerProfit);
+    //println("Nominators profit {}", nominatorsProfit);
+    expect(poolAfter.nominatorsAmount).toEqual(poolBefore.nominatorsAmount + nominatorsProfit);
+
+    val infoTx = res.findTransaction<RoundInfoMessage>({ from: pool.address, to: owner.address });
+    expect(infoTx).toNotEqual(null);
+
+    val infoMsg = infoTx!.loadBody<RoundInfoMessage>();
+    expect(infoMsg.info.returned - infoMsg.info.used).toEqual(profit);
+
+    expect(poolAfter.poolSupply).toEqual(poolBefore.poolSupply);
+
+    val validatorsData = poolAfter.validators.load();
+    expect(validatorsData.activeSlots).toEqual(validators.activeSlots - 1);
+    var validatorAfter = pool.getValidatorInfo(validator);
+    // Usage in even round cleared
+    expect(validatorAfter.validator.usageState & 2).toEqual(0);
+    // Usage in odd round intact
+    expect(validatorAfter.validator.usageState & 1).toEqual(1);
+    // And sets are rotated!
+    expect(validatorAfter.usage.curRoundUsage == null).toBeTrue();
+    expect(validatorAfter.usage.prevRoundUsage).toEqual(valStateBefore.usage.curRoundUsage);
+    expect(poolAfter.roundIndex).toEqual(poolBefore.roundIndex + 1);
+    expect(poolAfter.roundClosed).toBeFalse();
+
+    // Now use the recovered validator to stake again
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        elector.activeElectionId(),
+        true,
+    );
+    // And now we should be able to recover from the second round
+
+    validatorAfter = pool.getValidatorInfo(validator);
+
+    prevRound = validatorAfter.usage.prevRoundUsage!;
+    expect(prevRound.usage.rotation.rotationCount).toEqual(2);
+
+    // This round should use different proxy than previous one
+    expect(prevRound.proxy).toNotEqual(expectedProxy);
+
+    val secondRecovery = waitAndRecoverStake(pool, validator, elector.address);
+    // val secondRecovery = pool.sendRecoverStakeCompat(validator, DEFAULT_QUERY_ID, {value: ton("1")});
+    recoverTx = secondRecovery.findTransaction({
+        from: prevRound.proxy,
+        to: pool.address,
+        opcode: opcode<RecoverStakeOk>(),
+    });
+    expect(recoverTx != null).toBeTrue();
+    val recoverMsg = recoverTx!.loadInMsg<RecoverStakeOk>();
+    val nextRoundProfit = getInternalMessageValue(recoverMsg.info).grams - prevRound.usage.tonUsed;
+    expect(nextRoundProfit).toBeGreater(0);
+    // And loop goes on
+}
+
+get fun `test anybody could rotate vset for all the validators`() {
+    val (elector, stakes, _limits) = setupElector();
+    val (pool, owner, notOwner, validator, _nominators) = setupPoolWithNominators(40);
+
+    val testStake = stakes.minStake * 2;
+    val testValidator = setupRandomValidator(pool, owner.address);
+    val testValidatorTwo = setupRandomValidator(pool, owner.address);
+    var elections = announceElections(elector);
+
+    assertPoolNewStake(validator, pool, elector, elections, testStake);
+    assertPoolNewStake(testValidator, pool, elector, elections, testStake);
+    var newSetHash = updateVsetHash();
+
+    pool.sendUpdateVset(
+        notOwner.address,
+        DEFAULT_QUERY_ID,
+        { value: DEFAULT_MSG_VALUE },
+    );
+    var curTime = testing.getNow();
+
+    val poolBefore = pool.getPoolData();
+    val validators = poolBefore.validators.load();
+    var _mainBefore = validators.mainValidatorData.load();
+    var res = pool.sendUpdateVset(notOwner.address, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+
+    expect(res).toHaveSuccessfulTx<UpdateVset>({ from: notOwner.address, to: pool.address });
+
+    var poolAfter = pool.getPoolData();
+    var validatorsAfter = poolAfter.validators.load();
+    var mainAfter = validatorsAfter.mainValidatorData.load();
+    expect(mainAfter.vsetHash).toEqual(newSetHash >> 128);
+
+    var prevRound = validatorsAfter.prevRound.load();
+    expect(prevRound.roundIndex).toEqual(0);
+    expect(prevRound).toRotate({
+        pool: pool.address,
+        address: validators.mainValidatorAddress,
+        vsetHash: newSetHash,
+        prevCount: 0,
+        time: curTime,
+    });
+    expect(prevRound).toRotate({
+        pool: pool.address,
+        address: testValidator,
+        vsetHash: newSetHash,
+        prevCount: 0,
+        time: curTime,
+    });
+
+    elections = announceElections(elector);
+
+    assertPoolNewStake(testValidatorTwo, pool, elector, elections, testStake);
+
+    val prevSetHash = newSetHash;
+    newSetHash = updateVsetHash();
+
+    curTime += 60 * 15;
+    testing.setNow(curTime);
+
+    // Main validator updated individually
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+
+    curTime += 60 * 15;
+    testing.setNow(curTime);
+
+    res = pool.sendUpdateVset(notOwner.address, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+
+    expect(res).toHaveSuccessfulTx<UpdateVset>({ from: notOwner.address, to: pool.address });
+    poolAfter = pool.getPoolData();
+    validatorsAfter = poolAfter.validators.load();
+    mainAfter = validators.mainValidatorData.load();
+    val curRound = validatorsAfter.curRound.load();
+    prevRound = validatorsAfter.prevRound.load();
+
+    expect(curRound).toRotate({
+        address: testValidatorTwo,
+        pool: pool.address,
+        vsetHash: newSetHash,
+        prevCount: 0,
+        time: curTime,
+    });
+
+    expect(prevRound).toRotate({
+        pool: pool.address,
+        vsetHash: newSetHash,
+        address: validator,
+        prevCount: 1,
+        time: curTime - 15 * 60, // Should have outstanding rotation time
+    });
+    expect(prevRound).toRotate({
+        pool: pool.address,
+        vsetHash: newSetHash,
+        address: testValidator,
+        prevCount: 1,
+        time: curTime, // Rotated with testValidatorTwo
+    });
+
+    // Should not change, because round is closed
+    expect(mainAfter.vsetHash).toEqual(prevSetHash >> 128);
+}
+
+get fun `test new stake error should not bleed pool balance`() {
+    val (elector, stakes, _limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    val elections = announceElections(elector);
+    val balanceBefore = testing.getAccountBalance(pool.address);
+    repeat (10) {
+        val res = pool.sendNewStake(
+            validator,
+            DEFAULT_QUERY_ID,
+            stakes.minStake * 2,
+            getSignedBody(elections - 1),
+            { value: ton("1") },
+        );
+        expect(res).toHaveSuccessfulTx<NewStakeError>();
+    }
+    val balanceAfter = testing.getAccountBalance(pool.address);
+    expect(balanceAfter).toBeGreaterOrEqual(balanceBefore);
+    // println(balanceAfter - balanceBefore);
+}
+
+get fun `test new stake should refund on values above 1 ton`() {
+    val (elector, stakes, _limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    val elections = announceElections(elector);
+
+    val balanceBefore = testing.getAccountBalance(pool.address);
+    val stake = stakes.minStake * 2;
+    val res = pool.sendNewStake(
+        validator,
+        DEFAULT_QUERY_ID,
+        stake,
+        getSignedBody(elections),
+        { value: ton("1000") },
+    );
+
+    expect(res).toHaveSuccessfulTx<NewStakeOk>({ to: pool.address });
+    expect(res).toHaveRefund<NewStake>({ from: pool.address, to: validator });
+    val balanceAfter = testing.getAccountBalance(pool.address);
+    // 2 ton because 1 ton is frozen on a balance, and 1 ton returned with NewStakeOk
+    expect((balanceBefore - balanceAfter) as int).toBeApproxEqAbs(stake, ton("2"));
+}
+
+get fun `test recover stake should only be triggerable for validators with usage records`() {
+    val (_elector, _stakes, _limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    val stateBefore = getAccountData(pool.address);
+    val res = pool.sendRecoverStakeCompat(validator, DEFAULT_QUERY_ID, { value: ton("1") });
+    expect(
+        res,
+    ).toHaveRefund<RecoverStakeCompat>({ from: pool.address, to: validator, error: ErrorsPool.UsageRecordNotFound, previousState: stateBefore });
+}
+
+get fun `test should not be able to recover till unfreeze time`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(10);
+
+    val testValidator = setupRandomValidator(pool, owner.address);
+    var elections = announceElections(elector);
+
+    assertPoolNewStake(testValidator, pool, elector, elections, stakes.minStake * 2);
+    var res = pool.sendRecoverStakeCompat(testValidator, DEFAULT_QUERY_ID, { value: ton("100") });
+
+    // To early just hopped on elections
+    var curUsage = pool.getValidatorInfo(testValidator);
+    // println(curUsage);
+    // println(res);
+    expect(curUsage.usage.curRoundUsage!.usage.rotation.rotationCount).toEqual(0);
+    expect(
+        res,
+    ).toHaveRefund<RecoverStakeCompat>({ from: pool.address, to: testValidator, error: ErrorsPool.RoundTooEarly });
+    // println("After first recovery");
+    runElections(elector, stakes, limits);
+    // println("Got past first elections");
+    // To early, only next vset
+    pool.sendUpdateVset(testValidator, DEFAULT_QUERY_ID, { value: ton("1") });
+    curUsage = pool.getValidatorInfo(testValidator);
+    expect(curUsage.usage.prevRoundUsage!.usage.rotation.rotationCount).toEqual(1);
+
+    // println("Second recovery");
+    res = pool.sendRecoverStakeCompat(testValidator, DEFAULT_QUERY_ID, { value: ton("100") });
+    expect(
+        res,
+    ).toHaveRefund<RecoverStakeCompat>({ from: pool.address, to: testValidator, error: ErrorsPool.RoundTooEarly });
+
+    elections = announceElections(elector);
+    runElections(elector, stakes, limits);
+    pool.sendUpdateVset(testValidator, DEFAULT_QUERY_ID, { value: ton("1") });
+    // println("Passed second elections");
+    curUsage = pool.getValidatorInfo(testValidator);
+    expect(curUsage.usage.prevRoundUsage!.usage.rotation.rotationCount).toEqual(2);
+
+    // println("Third recovery");
+    res = pool.sendRecoverStakeCompat(testValidator, DEFAULT_QUERY_ID, { value: ton("100") });
+    // Right round, but no unfreeze yet
+    expect(
+        res,
+    ).toHaveRefund<RecoverStakeCompat>({ from: pool.address, to: testValidator, error: ErrorsPool.RecoveryTimeTooEarly });
+
+    curUsage = pool.getValidatorInfo(testValidator);
+    testing.setNow(
+        curUsage.usage.prevRoundUsage!.usage.rotation.rotationTime +
+        curUsage.usage.prevRoundUsage!.usage.heldFor +
+        61,
+    );
+    testing.runTickTock(elector.address, true);
+    testing.runTickTock(elector.address, false);
+
+    res = pool.sendRecoverStakeCompat(testValidator, DEFAULT_QUERY_ID, { value: ton("100") });
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+}
+
+get fun `test anybody should be able to recover on behalf of the validator at unfreeze time and later`() {
+    // Idea here is that if validator itself can't send recovery, for example as a result of hardware issues
+    // Anyone should be able to do it on behalf of validator in order for the pool to keep functioning
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, notOwner, validator, _nominators) = setupPoolWithNominators(20);
+
+    val testValue = random.range(10) * DEFAULT_MSG_VALUE;
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+
+    var res = pool.sendRecoverStakeUnrestricted(
+        notOwner.address,
+        DEFAULT_QUERY_ID,
+        validator,
+        testValue,
+        { value: testValue * 2 },
+    );
+    expect(
+        res,
+    ).toHaveFailedTx<RecoverStakeUnrestricted>({ to: pool.address, from: notOwner.address, exitCode: ErrorsPool.RoundTooEarly });
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+    res = pool.sendRecoverStakeUnrestricted(
+        notOwner.address,
+        DEFAULT_QUERY_ID,
+        validator,
+        testValue,
+        { value: testValue * 2 },
+    );
+    expect(
+        res,
+    ).toHaveFailedTx<RecoverStakeUnrestricted>({ to: pool.address, from: notOwner.address, exitCode: ErrorsPool.RecoveryTimeTooEarly });
+
+    waitTillRecovery(pool, validator, elector.address);
+    testing.runTickTock(elector.address, true);
+    testing.runTickTock(elector.address, false);
+
+    res = pool.sendRecoverStakeUnrestricted(
+        notOwner.address,
+        DEFAULT_QUERY_ID,
+        validator,
+        testValue,
+        { value: testValue * 2 },
+    );
+
+    val validatorInfo = pool.getValidatorInfo(validator);
+    val expectedProxy = validatorInfo.validator.evenProxy!;
+
+    expect(res).toHaveSuccessfulTx({ from: pool.address, to: expectedProxy, value: testValue });
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ from: expectedProxy, to: pool.address });
+}
+
+get fun `test should unfreeze frozen proxy by recoverStake`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, notOwner, validator, _nominators) = setupPoolWithNominators(20);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+
+    val validatorInfo = pool.getValidatorInfo(validator);
+    val expectedProxy = validatorInfo.validator.evenProxy!;
+
+    val proxyAcctHash = StateInit {
+        fixedPrefixLength: null,
+        special: null,
+        library: null,
+        code: build("Proxy"),
+        data: ProxyStorage {
+            pool: pool.address,
+            validator,
+            roundParity: false,
+        }.toCell(),
+    }.toCell()
+        .hash();
+
+    val frozenProxy = TlbAccountStateFrozen { stateHash: proxyAcctHash };
+
+    testing.setShardAccount(
+        expectedProxy,
+        TlbShardAccount {
+            account: (TlbAccountInfo {
+                addr: expectedProxy,
+                storage: TlbAccountStorage {
+                    lastTransLt: 0,
+                    balance: TlbCurrencyCollection {
+                        grams: ton("1"),
+                        other: [],
+                    },
+                    state: frozenProxy,
+                },
+                storageStat: TlbStorageInfo {
+                    used: TlbStorageUsed {
+                        cells: 10,
+                        bits: 1024,
+                    },
+                    storageExtra: TlbStorageExtraNone {},
+                    lastPaid: 0,
+                    duePayment: TlbNone {},
+                },
+            } as TlbAccount).toCell(),
+            lastTransHash: 0,
+            lastTransLt: 0,
+        },
+    );
+
+    waitTillRecovery(pool, validator, elector.address);
+    testing.runTickTock(elector.address, true);
+    testing.runTickTock(elector.address, false);
+
+    val res = pool.sendRecoverStakeUnrestricted(
+        notOwner.address,
+        DEFAULT_QUERY_ID,
+        validator,
+        ton("9"),
+        { value: ton("10") },
+    );
+
+    val recoverTx = res.findTransaction({ from: pool.address, to: expectedProxy });
+    expect(recoverTx).toNotEqual(null);
+    expect(res).toHaveSuccessfulTx<RecoverStakeCompat>({ from: pool.address });
+    expect(res).toHaveSuccessfulTx({ from: elector.address, to: expectedProxy });
+}
+
+get fun `test new stake should bounce from the frozen proxy`() {
+    val (elector, stakes, _limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(20);
+
+    val proxyAcctHash = StateInit {
+        fixedPrefixLength: null,
+        special: null,
+        library: null,
+        code: build("Proxy"),
+        data: ProxyStorage {
+            pool: pool.address,
+            validator,
+            roundParity: false,
+        }.toCell(),
+    }.toCell()
+        .hash();
+
+    val frozenProxy = TlbAccountStateFrozen { stateHash: proxyAcctHash };
+
+    val expectedProxy = getProxy(pool.address, validator, false).address;
+
+    testing.setShardAccount(
+        expectedProxy,
+        TlbShardAccount {
+            account: (TlbAccountInfo {
+                addr: expectedProxy,
+                storage: TlbAccountStorage {
+                    lastTransLt: 0,
+                    balance: TlbCurrencyCollection {
+                        grams: ton("1"),
+                        other: [],
+                    },
+                    state: frozenProxy,
+                },
+                storageStat: TlbStorageInfo {
+                    used: TlbStorageUsed {
+                        cells: 10,
+                        bits: 1024,
+                    },
+                    storageExtra: TlbStorageExtraNone {},
+                    lastPaid: 0,
+                    duePayment: TlbNone {},
+                },
+            } as TlbAccount).toCell(),
+            lastTransHash: 0,
+            lastTransLt: 0,
+        },
+    );
+
+    val stateBefore = pool.getValidatorInfo(validator);
+    val elections = announceElections(elector);
+    val poolBefore = pool.getPoolData();
+    val validatorsBefore = poolBefore.validators.load();
+    val curRoundBefore = validatorsBefore.curRound.load();
+
+    val testStake = stakes.minStake * 2;
+    val res = pool.sendNewStake(
+        validator,
+        DEFAULT_QUERY_ID,
+        testStake,
+        getSignedBody(elections),
+        { value: DEFAULT_MSG_VALUE },
+    );
+
+    expect(res).toHaveSuccessfulTx({ from: expectedProxy, to: pool.address, bounced: true });
+
+    val stateAfter = pool.getValidatorInfo(validator);
+
+    expect(stateAfter.validator.usageState).toEqual(stateBefore.validator.usageState);
+    expect(stateAfter.validator.refundAmount).toBeLess(ton("1"));
+    expect(stateAfter.usage.curRoundUsage).toEqual(null);
+
+    val poolAfter = pool.getPoolData();
+    val validators = poolAfter.validators.load();
+
+    val curRound = validators.curRound.load();
+
+    expect(curRound.used).toEqual(curRoundBefore.used);
+    expect(curRound.used).toEqual(curRoundBefore.returned);
+}
+
+get fun `test RecoverStakeOk should not be accepted from arbitrary address`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    val attacker = testing.treasury("attacker");
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+
+    var res = pool.sendRecoverStakeOk(
+        attacker.address,
+        DEFAULT_QUERY_ID,
+        ProxyResponseData {
+            validator,
+            parity: false, // Round 0 is even
+        }.toCell()
+            .beginParse(),
+    );
+
+    expect(res).toHaveFailedTx({
+        to: pool.address,
+        from: attacker.address,
+        exitCode: ErrorsPool.NotFromProxy,
+    });
+
+    res = pool.sendRecoverStakeOk(
+        attacker.address,
+        DEFAULT_QUERY_ID,
+        ProxyResponseData {
+            validator,
+            parity: true, // Round 1 is odd
+        }.toCell()
+            .beginParse(),
+    );
+
+    expect(res).toHaveFailedTx({
+        to: pool.address,
+        from: attacker.address,
+        exitCode: ErrorsPool.NotFromProxy,
+    });
+}
+
+@test.skip
+get fun `test that validator wallet is not burning balance while operating due to refund`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(10);
+
+    val testValidator = testing.treasury("testValidator");
+    val balanceBefore = testing.getAccountBalance(testValidator.address);
+    expect(balanceBefore).toBeGreater(0);
+
+    pool.sendAddValidator(
+        owner.address,
+        DEFAULT_QUERY_ID,
+        testValidator.address,
+        RoundAllowance.InAllRounds,
+        null,
+        { value: ton("10000") },
+    );
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        testValidator.address,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        testValidator.address,
+        0,
+        true,
+    );
+
+    val res = waitAndRecoverStake(pool, testValidator.address, elector.address);
+
+    val balanceBeforeRecovery = testing.getAccountBalance(testValidator.address);
+    println(balanceBeforeRecovery, balanceBefore);
+    expect(
+        res,
+    ).toHaveSuccessfulTx<StakeReturned>({ from: pool.address, to: testValidator.address });
+
+    val balanceAfter = testing.getAccountBalance(testValidator.address);
+    expect(balanceAfter).toBeGreaterOrEqual(balanceBefore);
+
+    println(balanceBefore - balanceAfter);
+}
+
+get fun `test new stake error from elector should be handled appropriately`() {
+    val (elector, stakes, _limits) = setupElector();
+    val (pool, owner, _notOwner, validator, _nominators) = setupPoolWithNominators();
+
+    val elections = announceElections(elector);
+    expect(elections).toBeGreater(0);
+    val testValidator = setupRandomValidator(pool, owner.address);
+
+    // Now the main validator
+    assertPoolNewStake(validator, pool, elector, elections, stakes.minStake * 2);
+
+    val poolBefore = pool.getPoolData();
+    val usageBefore = pool.getValidatorInfo(testValidator);
+    val validatorsBefore = poolBefore.validators.load();
+    // Now the currentRound is as full as it will ever be
+    // And the random validator sending stake to the wrong elections,
+    // triggering NewStakeError
+    val res = pool.sendNewStake(
+        testValidator,
+        DEFAULT_QUERY_ID,
+        stakes.minStake * 2,
+        getSignedBody(elections - 1),
+        { value: ton("1") },
+    );
+    res.giveName("NewStakeError");
+
+    val refundTx = res.findTransaction<RefundMessage>({ from: pool.address });
+    if (refundTx != null) {
+        // println(refundTx.loadBody<RefundMessage>());
+    }
+
+    expect(res).toHaveSuccessfulTx<NewStakeError>({ to: pool.address });
+
+    val poolAfter = pool.getPoolData();
+    val validatorsAfter = poolAfter.validators.load();
+    val roundBefore = validatorsBefore.curRound.load();
+    val roundAfter = validatorsAfter.curRound.load();
+    expect(roundBefore.returned).toBeLess(roundBefore.used);
+    expect(roundBefore.used).toEqual(roundAfter.used);
+    expect(roundAfter.users.exists(testValidator)).toBeFalse();
+    // No losses on the books, it is absorbed by the validator refund amount
+    expect(roundAfter.returned).toEqual(roundBefore.returned);
+    // When stake is taken activeSlots increment
+    // On NewStakeError it should decrement
+    expect(validatorsAfter.activeSlots).toEqual(validatorsBefore.activeSlots);
+    expect(validatorsAfter.stakeUsed).toEqual(validatorsBefore.stakeUsed);
+
+    val usageAfter = pool.getValidatorInfo(testValidator);
+    expect(usageBefore.validator.usageState).toEqual(usageAfter.validator.usageState);
+    // Validator should be punished for the loss
+    expect(usageAfter.validator.refundAmount).toBeLess(ton("1"));
+}
+
+get fun `test new stake error from elector should be handled appropriately (FULL POOL)`() {
+    val (elector, stakes, _limits) = setupElector();
+    val (
+        pool,
+        _owner,
+        _notOwner,
+        validator,
+        randomValidator,
+        _nominators,
+    ) = setupFullyBookedPool();
+
+    val elections = announceElections(elector);
+    expect(elections).toBeGreater(0);
+    val poolInitial = pool.getPoolData();
+
+    val validatorsInitial = poolInitial.validators.load();
+    var lookup = validatorsInitial.validators.findFirst();
+    // Let's make a fully staked 127 slots
+    while (lookup.isFound) {
+        val valAddress = lookup.getKey();
+        if (valAddress != randomValidator) {
+            val _valData = lookup.loadValue();
+            assertPoolNewStake(valAddress, pool, elector, elections, stakes.minStake * 2);
+        }
+        lookup = validatorsInitial.validators.iterateNext(lookup);
+    }
+
+    // Now the main validator
+    assertPoolNewStake(validator, pool, elector, elections, stakes.minStake * 2);
+
+    val poolBefore = pool.getPoolData();
+    val usageBefore = pool.getValidatorInfo(randomValidator);
+    val validatorsBefore = poolBefore.validators.load();
+    // Now the currentRound is as full as it will ever be
+    // And the random validator sending stake to the wrong elections,
+    // triggering NewStakeError
+    val res = pool.sendNewStake(
+        randomValidator,
+        DEFAULT_QUERY_ID,
+        stakes.minStake * 2,
+        getSignedBody(elections - 1),
+        { value: ton("1") },
+    );
+    res.giveName("NewStakeError");
+
+    val refundTx = res.findTransaction<RefundMessage>({ from: pool.address });
+    if (refundTx != null) {
+        // println(refundTx.loadBody<RefundMessage>());
+    }
+
+    expect(res).toHaveSuccessfulTx<NewStakeError>({ to: pool.address });
+
+    val poolAfter = pool.getPoolData();
+    val validatorsAfter = poolAfter.validators.load();
+    // Can't make this comparasion, because refundAmount is changed
+    //expect(validatorsBefore).toEqual(validatorsAfter);
+    val roundBefore = validatorsBefore.curRound.load();
+    val roundAfter = validatorsAfter.curRound.load();
+    expect(roundAfter).toEqual(roundBefore);
+    expect(roundBefore.returned).toEqual(roundAfter.returned);
+    expect(roundBefore.used).toEqual(roundAfter.used);
+    expect(roundAfter.users.exists(randomValidator)).toBeFalse();
+    // No losses on the books, it is absorbed by the validator refund amount
+    // When stake is taken activeSlots increment
+    // On NewStakeError it should decrement
+    expect(validatorsAfter.activeSlots).toEqual(validatorsBefore.activeSlots);
+    expect(validatorsAfter.stakeUsed).toEqual(validatorsBefore.stakeUsed);
+
+    val usageAfter = pool.getValidatorInfo(randomValidator);
+    expect(usageBefore.validator.usageState).toEqual(usageAfter.validator.usageState);
+    expect(usageAfter.validator.refundAmount).toBeLess(ton("1"));
+}

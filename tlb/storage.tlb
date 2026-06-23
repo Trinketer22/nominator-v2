@@ -1,0 +1,177 @@
+// Storage schema for Pool, PayoutItem, and Proxy contracts.
+//
+// Source mapping:
+// - Pool root storage: PoolStorageNotInitialized / Storage (contracts/types.tolk)
+// - Pool nested storage: ValidatorsData, NominatorsData, PendingOps, RoundData,
+//   MainValidatorData, Validator, Nominator, TonUsage, RotationData
+// - Payout item storage: ItemStorageNotInitialized / ItemStorageInitialized,
+//   plus StaticData
+// - Proxy storage: ProxyStorage
+//
+// Notes:
+// - Keyed maps in Tolk map<address, T> are represented as HashmapE 267 T
+//   (267-bit MsgAddressInt key).
+
+bool_false$0 = Bool;
+bool_true$1 = Bool;
+
+bit$_ (## 1) = Bit;
+
+nothing$0 {X:Type} = Maybe X;
+just$1 {X:Type} value:X = Maybe X;
+
+var_uint$_ {n:#} len:(#< n) value:(uint (len * 8)) = VarUInteger n;
+nanograms$_ amount:(VarUInteger 16) = Grams;
+_ grams:Grams = Coins;
+
+anycast_info$_ depth:(#<= 30) { depth >= 1 }
+  rewrite_pfx:(bits depth) = Anycast;
+addr_std$10 anycast:(Maybe Anycast)
+  workchain_id:int8 address:bits256 = MsgAddressInt;
+
+addr_none$00 = MsgAddressIntOrNone;
+addr_std_or_none$100 workchain_id:int8 address:bits256 = MsgAddressIntOrNone;
+
+// Copied from TON block.tlb for fixed-length Hashmap/HashmapE support.
+hm_edge#_ {n:#} {X:Type} {l:#} {m:#} label:(HmLabel ~l n)
+          {n = (~m) + l} node:(HashmapNode m X) = Hashmap n X;
+
+hmn_leaf#_ {X:Type} value:X = HashmapNode 0 X;
+hmn_fork#_ {n:#} {X:Type} left:^(Hashmap n X)
+           right:^(Hashmap n X) = HashmapNode (n + 1) X;
+
+hml_short$0 {m:#} {n:#} len:(Unary ~n) {n <= m} s:(n * Bit) = HmLabel ~n m;
+hml_long$10 {m:#} n:(#<= m) s:(n * Bit) = HmLabel ~n m;
+hml_same$11 {m:#} v:Bit n:(#<= m) = HmLabel ~n m;
+
+unary_zero$0 = Unary ~0;
+unary_succ$1 {n:#} x:(Unary ~n) = Unary ~(n + 1);
+
+hme_empty$0 {n:#} {X:Type} = HashmapE n X;
+hme_root$1 {n:#} {X:Type} root:^(Hashmap n X) = HashmapE n X;
+
+round_allowance$_ value:uint2 = RoundAllowance;
+
+validator_limit_ton$0 max_ton:Grams = ValidatorLimit;
+validator_limit_share$1 max_share:uint25 = ValidatorLimit;
+
+rotation_data$_
+  vset_hash:uint256
+  rotation_time:uint32
+  rotation_count:uint8
+= RotationData;
+
+ton_usage$_
+  held_for:uint32
+  ton_used:Grams
+  validator:MsgAddressInt
+  rotation:RotationData
+= TonUsage;
+
+round_data$_
+  used:Grams
+  returned:Grams
+  round_index:uint64
+  users:(HashmapE 267 TonUsage)
+= RoundData;
+
+validator$_
+  is_banned:Bool
+  usage_state:uint2
+  even_proxy:MsgAddressIntOrNone
+  odd_proxy:MsgAddressIntOrNone
+  limit:(Maybe ValidatorLimit)
+  refund_amount:Grams
+  round_parity:RoundAllowance
+= Validator;
+
+main_validator_data$_
+  vset_hash:uint128
+  validator:Validator
+= MainValidatorData;
+
+validators_data$_
+  main_validator_address:MsgAddressInt
+  main_validator_data:^MainValidatorData
+  active_validators:uint8
+  active_slots:uint9
+  stake_used:Grams
+  min_ton_per_validator:Grams
+  max_ton_per_validator:Grams
+  max_refund_amount:Grams
+  validators:(HashmapE 267 Validator)
+  cur_round:^RoundData
+  prev_round:^RoundData
+= ValidatorsData;
+
+nominator$_
+  share:Grams
+  ton_amount:Grams
+  pending_deposit:Grams
+  pending_withdrawal:Grams
+  withdrawal_index:uint64
+= Nominator;
+
+pending_ops$_
+  cur:MsgAddressIntOrNone
+  prev:MsgAddressIntOrNone
+  next:MsgAddressIntOrNone
+  next_state_init:(Maybe ^Cell)
+  index:uint64
+  is_withdraw:Bool
+  pending_amount:Grams
+= PendingOps;
+
+nominators_data$_
+  nm_count:uint16
+  min_stake:Grams
+  min_withdrawable_reward:Grams
+  pool_nominators:(HashmapE 267 Nominator)
+  pending_deposits:(Maybe ^PendingOps)
+  pending_withdrawals:(Maybe ^PendingOps)
+= NominatorsData;
+
+pool_storage_not_initialized$0
+  owner:MsgAddressInt
+  pool_id:uint32
+= PoolStorage;
+
+pool_storage$1
+  owner:MsgAddressInt
+  pool_id:uint32
+  halted:Bool
+  owner_share:uint25
+  pool_supply:Grams
+  round_closed:Bool
+  round_index:uint64
+  validators:^ValidatorsData
+  nominators:^NominatorsData
+  max_nominators:uint10
+  nominators_amount:Grams
+  pending_deposits:Grams
+  pending_withdrawals:Grams
+= PoolStorage;
+
+static_data$_
+  pool:MsgAddressInt
+  round_index:uint64
+  index:uint64
+  is_withdrawal:Bool
+  prev:MsgAddressIntOrNone
+  next:MsgAddressIntOrNone
+= StaticData;
+
+item_storage_initialized$1
+  owner:MsgAddressInt
+  data:^StaticData
+= ItemStorage;
+
+item_storage_not_initialized$0
+  data:StaticData
+= ItemStorage;
+
+proxy_storage$_
+  round_parity:Bool
+  pool:MsgAddressInt
+  validator:MsgAddressInt
+= ProxyStorage;
