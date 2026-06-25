@@ -983,16 +983,16 @@ fun onInternalMessage(in: InMessage) {
             calculateGasFee(
                 BASECHAIN,
                 RECOVER_STAKE_OK_GAS,
-            ) -
-            refundBonus;
-
+            );
             val proxyData = ProxyResponseData.fromSlice(msg.remaining);
 
             var validator = validators.getValidatorByAddress(proxyData.validator, null);
 
             // Ugly but works
+            var refundAmount = 0;
             if (validator != null) {
-                returned -= validator.data.refundAmount;
+                refundAmount = min(validator.data.refundAmount, validators.maxRefundAmount);
+                returned -= refundAmount + refundBonus;
             }
 
             var (stakeReturned, _roundIdx, roundDone) = validators.coverUsageByAddress(
@@ -1016,7 +1016,6 @@ fun onInternalMessage(in: InMessage) {
 
             // This should practically always be true.
             if (validator != null) {
-                val refundAmount = min(validator.data.refundAmount, validators.maxRefundAmount);
                 // Should we refund in case of negative returns?
                 createMessage({
                     bounce: false,

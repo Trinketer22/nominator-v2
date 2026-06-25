@@ -583,7 +583,7 @@ get fun `test validator should be able to recover stake and rotate round`() {
     expect(profit).toBeGreater(0);
     val refundBonus = calculateGasFee(BASECHAIN, REFUND_BONUS_GAS);
     profit -= calculateGasFee(BASECHAIN, RECOVER_STAKE_OK_GAS) + refundBonus +
-    valStateBefore.validator.refundAmount;
+    min(valStateBefore.validator.refundAmount, validators.maxRefundAmount);
 
     val ownerProfit = mulDivFloor(profit, poolBefore.ownerShare, SHARE_BASE);
     val nominatorsProfit = profit - ownerProfit;
