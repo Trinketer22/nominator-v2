@@ -53,18 +53,10 @@ struct CurrentVset {
     vsetHash: int
 }
 
-struct MainValidatorData {
-    // We need global hash to track the rounds rotation
-    // But it simply doesn't fit, and another level of cell depth
-    // is not desireable, so half the hash is as good as a full one
-    // for that purpose
-    vsetHash: uint128
-    validator: Validator
-}
-
 struct ValidatorsData {
     mainValidatorAddress: address
-    mainValidatorData: Cell<MainValidatorData>
+    vsetHash: uint128
+    mainValidatorData: Cell<Validator>
     // 127 validators will fit
     activeValidators: uint8 = 1
     activeSlots: uint9 = 0

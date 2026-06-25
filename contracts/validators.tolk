@@ -67,7 +67,7 @@ fun ValidatorsData.getValidatorByAddress(
 ): ValidatorLookup? {
     if (address == self.mainValidatorAddress) {
         val mainData = lazy self.mainValidatorData.load();
-        return { isMain: true, data: mainData.validator };
+        return { isMain: true, data: mainData };
     }
 
     val valLookup = self.validators.get(address);
@@ -86,11 +86,7 @@ fun ValidatorsData.updateValidatorByAddress(
     validator: ValidatorLookup,
 ) {
     if (validator.isMain) {
-        val mainValidator = lazy self.mainValidatorData.load();
-        self.mainValidatorData = MainValidatorData {
-            vsetHash: mainValidator.vsetHash,
-            validator: validator.data,
-        }.toCell();
+        self.mainValidatorData = validator.data.toCell();
     } else {
         self.validators.set(address, validator.data);
     }
@@ -140,8 +136,6 @@ fun ValidatorsData.rotateRound(
 ): RotationStatus {
     val curVset = getCurVset();
 
-    var mainData = self.mainValidatorData.load();
-    var mainValidator = mainData.validator;
     var curRound: RoundData? = null;
     var rotatedInfo: RoundInfo? = null;
     var prevRound: RoundData;
@@ -150,31 +144,36 @@ fun ValidatorsData.rotateRound(
     var closed = false;
     val isMain = address == self.mainValidatorAddress;
 
-    val setRotated = mainData.updateVset(curVset.vsetHash);
+    prevRound = self.prevRound.load();
+    val truncHash = curVset.vsetHash >> 128;
+
+    var setRotated = truncHash != self.vsetHash;
+
     if (setRotated) {
-        val prevRound = self.prevRound.load();
         if (!prevRound.users.isEmpty()) {
             closed = true;
         } else {
+            self.vsetHash = truncHash;
+
             rotatedInfo = RoundInfo {
                 used: prevRound.used,
                 returned: prevRound.returned,
                 roundIndex: prevRound.roundIndex,
             };
-
-            self.mainValidatorData = mainData.toCell();
+            // self.mainValidatorData = mainData.toCell();
             self.prevRound = self.curRound;
+            // Reload the prev round only here
+            prevRound = self.curRound.load();
             roundIndex += 1;
             curRound = RoundData { roundIndex };
             self.curRound = curRound.toCell();
         }
     }
 
-    // Bit clunky
-    prevRound = self.prevRound.load();
-
     val bitIdx = toBitIndex(roundIndex);
     if (isMain) {
+        var mainValidator = lazy self.mainValidatorData.load();
+        mainValidator.refundAmount += inValue;
         if (mainValidator.usageState > 0) {
             if (curRound == null) {
                 curRound = self.curRound.load();
@@ -188,7 +187,7 @@ fun ValidatorsData.rotateRound(
             );
             updatedCur = updatedCur || updCur;
             updatedPrev = updatedPrev || updPrev;
-            mainValidator.refundAmount += inValue;
+            self.mainValidatorData = mainValidator.toCell();
         }
     } else {
         val myValidator = self.validators.get(address);
@@ -220,6 +219,7 @@ fun ValidatorsData.rotateRound(
                 curRound = self.curRound.load();
             }
 
+            var mainValidator = lazy self.mainValidatorData.load();
             mainValidator.rotateVset(bitIdx, curVset.vsetHash, mutate curRound, mutate prevRound);
             while (curReccord.isFound) {
                 var valData = curReccord.loadValue();
@@ -348,15 +348,6 @@ fun RotationData.rotateVset(mutate self, newSetHash: int, hasUsed: bool): bool {
         hasRotated = true;
     }
     return hasRotated;
-}
-
-fun MainValidatorData.updateVset(mutate self, curVsetHash: int): bool {
-    val truncHash = curVsetHash >> 128;
-    if (truncHash != self.vsetHash) {
-        self.vsetHash = truncHash;
-        return true;
-    }
-    return false;
 }
 
 fun getCurVset(): CurrentVset {

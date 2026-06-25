@@ -327,7 +327,7 @@ fun runRound(
 
     if (!expectCloseAfter) {
         expect(poolAfter.roundIndex).toEqual(poolBefore.roundIndex + 1);
-        expect(validatorsAfter.mainValidatorData.load().vsetHash == curVsetHash >> 128);
+        expect(validatorsAfter.vsetHash == curVsetHash >> 128);
         val prevRound = validatorsAfter.prevRound.load();
         expect(prevRound.used).toEqual(curRound.used);
         expect(prevRound.roundIndex).toEqual(curRound.roundIndex);
@@ -342,7 +342,7 @@ fun runRound(
         expect(stakeData.rotation.vsetHash).toEqual(curVsetHash);
     } else {
         expect(poolAfter.roundIndex).toEqual(poolBefore.roundIndex);
-        expect(validatorsAfter.mainValidatorData.load().vsetHash == mainBefore.vsetHash);
+        expect(validatorsAfter.vsetHash == validators.vsetHash);
         val freshCurRound = validatorsAfter.curRound.load();
         val stakeLookup = freshCurRound.users.get(curProxy);
         expect(stakeLookup.isFound).toBeTrue();

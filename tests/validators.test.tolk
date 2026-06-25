@@ -676,7 +676,7 @@ get fun `test anybody could rotate vset for all the validators`() {
     var poolAfter = pool.getPoolData();
     var validatorsAfter = poolAfter.validators.load();
     var mainAfter = validatorsAfter.mainValidatorData.load();
-    expect(mainAfter.vsetHash).toEqual(newSetHash >> 128);
+    expect(validatorsAfter.vsetHash).toEqual(newSetHash >> 128);
 
     var prevRound = validatorsAfter.prevRound.load();
     expect(prevRound.roundIndex).toEqual(0);
@@ -744,7 +744,7 @@ get fun `test anybody could rotate vset for all the validators`() {
     });
 
     // Should not change, because round is closed
-    expect(mainAfter.vsetHash).toEqual(prevSetHash >> 128);
+    expect(validatorsAfter.vsetHash).toEqual(prevSetHash >> 128);
 }
 
 get fun `test new stake error should not bleed pool balance`() {

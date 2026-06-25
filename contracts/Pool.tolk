@@ -408,11 +408,8 @@ fun onInternalMessage(in: InMessage) {
                     minTonPerValidator: msg.minTonPerValidator,
                     curRound: RoundData { roundIndex: 0 }.toCell(),
                     prevRound: RoundData { roundIndex: 0 }.toCell(),
-
-                    mainValidatorData: MainValidatorData {
-                        vsetHash: getCurVset().vsetHash >> 128,
-                        validator: mainValidator,
-                    }.toCell(),
+                    vsetHash: getCurVset().vsetHash >> 128,
+                    mainValidatorData: mainValidator.toCell(),
                     maxRefundAmount: msg.maxRefund,
                 }.toCell(),
                 maxNominators: nmSettings.maxNominators,
