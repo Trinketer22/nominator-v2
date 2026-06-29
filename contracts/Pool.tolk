@@ -26,9 +26,7 @@ type AllowedComments =
     | WithdrawalMessage
     | WithdrawalReward
 
-type AllowedMessage =
-    | InitPoolMessage
-    | TextComment
+type PostInit =  TextComment
     | UpdateVset
     | NewStake
     | NewStakeOk
@@ -42,6 +40,9 @@ type AllowedMessage =
     | AddFunds
     | OwnerWithdrawal
     | UpdateLimits
+
+type AllowedMessage = PostInit
+    | InitPoolMessage
 
 fun refundError(to: address, ctx: RefundContext, mode: int) {
     createMessage({
@@ -379,74 +380,81 @@ fun handleNewStakeError(sender: address, value: int) {
 }
 
 fun onInternalMessage(in: InMessage) {
+
+    var storage= PoolStorage.load();
+    if(storage is PoolStorageNotInitialized) {
+       val msg = InitPoolMessage.fromSlice(in.body, {throwIfOpcodeDoesNotMatch: ErrorsPool.PoolStorageNotInitialized});
+       val nmSettings = msg.nominatorsSettings.load();
+       assert(in.senderAddress == storage.owner, ErrorsPool.NotOwner);
+       assert(msg.maxTonPerValidator > msg.minTonPerValidator, ErrorsPool.InvalidMaxMin);
+       assert(msg.roundAllowance as int > 0, ErrorsPool.AtLeastOneRoundShouldBeAlowed);
+       assert(msg.ownerShare <= SHARE_BASE, ErrorsPool.InvalidOwnerShare);
+       var reserveAmount = POOL_MIN_STORAGE;
+       val nRounds = max(msg.roundAllowance as int - 1, 1);
+
+       if (nmSettings.maxNominators > 0) {
+           reserveAmount += getMaxPunishmentInt(msg.minTonPerValidator) * nRounds;
+       }
+
+       assert(in.valueCoins >=
+       reserveAmount + PROXY_MIN_STORAGE * nRounds + ton("1"), ErrorsPool.NotEnoughGas);
+
+       reserveGramsOnBalance(
+           reserveAmount,
+           RESERVE_MODE_EXACT_AMOUNT | RESERVE_MODE_BOUNCE_ON_ACTION_FAIL,
+       );
+
+       var mainValidator = Validator {
+           usageState: 0,
+           refundAmount: 0,
+           limit: msg.limit,
+       };
+
+       mainValidator.deployProxy(
+           msg.mainValidator,
+           storage.owner,
+           in.valueCoins - reserveAmount,
+           msg.queryId,
+       );
+
+       createMessage({
+           bounce: false,
+           dest: storage.owner,
+           value: 0,
+           body: InitPoolSuccess { queryId: msg.queryId },
+       }).send(SEND_MODE_CARRY_ALL_BALANCE);
+
+       val newStorage = Storage {
+           owner: storage.owner,
+           poolId: storage.poolId,
+           ownerShare: msg.ownerShare,
+           validators: ValidatorsData {
+               mainValidatorAddress: msg.mainValidator,
+               maxTonPerValidator: msg.maxTonPerValidator,
+               minTonPerValidator: msg.minTonPerValidator,
+               curRound: RoundData { roundIndex: 0 }.toCell(),
+               prevRound: RoundData { roundIndex: 0 }.toCell(),
+               vsetHash: getCurVset().vsetHash >> 128,
+               mainValidatorData: mainValidator.toCell(),
+               maxRefundAmount: msg.maxRefund,
+           }.toCell(),
+           maxNominators: nmSettings.maxNominators,
+           nominators: NominatorsData {
+               minStake: nmSettings.minStake,
+               minWithdrawableReward: nmSettings.minWithdrawableRewards,
+           }.toCell(),
+       };
+
+       newStorage.save();
+       return;
+    }
+
     val msg = AllowedMessage.fromSlice(in.body, { throwIfOpcodeDoesNotMatch: 0xffff });
 
     match (msg) {
         InitPoolMessage => {
-            val storage = PoolStorageNotInitialized.load();
-            val nmSettings = msg.nominatorsSettings.load();
-            assert(in.senderAddress == storage.owner, ErrorsPool.NotOwner);
-            assert(msg.maxTonPerValidator > msg.minTonPerValidator, ErrorsPool.InvalidMaxMin);
-            assert(msg.roundAllowance as int > 0, ErrorsPool.AtLeastOneRoundShouldBeAlowed);
-            assert(msg.ownerShare <= SHARE_BASE, ErrorsPool.InvalidOwnerShare);
-            var reserveAmount = POOL_MIN_STORAGE;
-            val nRounds = max(msg.roundAllowance as int - 1, 1);
-
-            if (nmSettings.maxNominators > 0) {
-                reserveAmount += getMaxPunishmentInt(msg.minTonPerValidator) * nRounds;
-            }
-
-            assert(in.valueCoins >=
-            reserveAmount + PROXY_MIN_STORAGE * nRounds + ton("1"), ErrorsPool.NotEnoughGas);
-
-            reserveGramsOnBalance(
-                reserveAmount,
-                RESERVE_MODE_EXACT_AMOUNT | RESERVE_MODE_BOUNCE_ON_ACTION_FAIL,
-            );
-
-            var mainValidator = Validator {
-                usageState: 0,
-                refundAmount: 0,
-                limit: msg.limit,
-            };
-
-            mainValidator.deployProxy(
-                msg.mainValidator,
-                storage.owner,
-                in.valueCoins - reserveAmount,
-                msg.queryId,
-            );
-
-            createMessage({
-                bounce: false,
-                dest: storage.owner,
-                value: 0,
-                body: InitPoolSuccess { queryId: msg.queryId },
-            }).send(SEND_MODE_CARRY_ALL_BALANCE);
-
-            val newStorage = Storage {
-                owner: storage.owner,
-                poolId: storage.poolId,
-                ownerShare: msg.ownerShare,
-                validators: ValidatorsData {
-                    mainValidatorAddress: msg.mainValidator,
-                    maxTonPerValidator: msg.maxTonPerValidator,
-                    minTonPerValidator: msg.minTonPerValidator,
-                    curRound: RoundData { roundIndex: 0 }.toCell(),
-                    prevRound: RoundData { roundIndex: 0 }.toCell(),
-                    vsetHash: getCurVset().vsetHash >> 128,
-                    mainValidatorData: mainValidator.toCell(),
-                    maxRefundAmount: msg.maxRefund,
-                }.toCell(),
-                maxNominators: nmSettings.maxNominators,
-                nominators: NominatorsData {
-                    minStake: nmSettings.minStake,
-                    minWithdrawableReward: nmSettings.minWithdrawableRewards,
-                }.toCell(),
-            };
-
-            newStorage.save();
-        }
+            throw ErrorsPool.AlreadyInitialized;
+        },
         TextComment => {
             try {
                 handleTextComment(msg.comment, in.senderAddress, in.valueCoins);
@@ -463,7 +471,6 @@ fun onInternalMessage(in: InMessage) {
             }
         }
         UpdateVset => {
-            var storage = Storage.load();
             var validators = storage.validators.load();
             val inValue = min(in.valueCoins, REFUND_THRESHOLD);
             val status = validators.rotateRound(in.senderAddress, storage.roundIndex, inValue);
@@ -502,7 +509,6 @@ fun onInternalMessage(in: InMessage) {
         }
         AddValidator => {
             try {
-                var storage = lazy Storage.load();
                 assert(in.senderAddress == storage.owner, ErrorsPool.NotOwner);
                 var validators = lazy storage.validators.load();
 
@@ -558,7 +564,6 @@ fun onInternalMessage(in: InMessage) {
         AddFunds => {}
         OwnerWithdrawal => {
             try {
-                val storage = lazy Storage.load();
                 val validators = lazy storage.validators.load();
                 assert(in.senderAddress == storage.owner, ErrorsPool.NotOwner);
 
@@ -599,7 +604,6 @@ fun onInternalMessage(in: InMessage) {
         }
         UpdateLimits => {
             try {
-                var storage = lazy Storage.load();
                 var validators = lazy storage.validators.load();
                 assert(in.senderAddress == storage.owner, ErrorsPool.NotOwner);
 
@@ -654,7 +658,6 @@ fun onInternalMessage(in: InMessage) {
         }
         RemoveValidator => {
             try {
-                var storage = lazy Storage.load();
                 assert(in.senderAddress == storage.owner, ErrorsPool.NotOwner);
                 var validators = lazy storage.validators.load();
                 assert(msg.validator !=
@@ -697,7 +700,6 @@ fun onInternalMessage(in: InMessage) {
 
                 assert(in.valueCoins >= ton("1"), ErrorsPool.NotEnoughValueForNewStake);
 
-                var storage = lazy Storage.load();
                 var validators = lazy storage.validators.load();
                 assert(!storage.halted, ErrorsPool.PoolIsHalted);
                 var valData = validators.getValidatorByAddress(
@@ -851,7 +853,6 @@ fun onInternalMessage(in: InMessage) {
         }
         RecoverStakeCompat => {
             try {
-                var storage = lazy Storage.load();
                 val validators = lazy storage.validators.load();
 
                 // It's ok for roundIndex to go negative, since -1 has LSB set to true.
@@ -928,7 +929,6 @@ fun onInternalMessage(in: InMessage) {
             }
         }
         RecoverStakeUnrestricted => {
-            val storage = lazy Storage.load();
             val validators = lazy storage.validators.load();
             val valData = validators.getValidatorByAddress(
                 msg.validator,
@@ -978,7 +978,6 @@ fun onInternalMessage(in: InMessage) {
             );
         }
         RecoverStakeOk => {
-            var storage = lazy Storage.load();
             var validators = lazy storage.validators.load();
 
             // Since round map has proxy address as a key, we don't need state->address calculation
@@ -1081,7 +1080,6 @@ fun onInternalMessage(in: InMessage) {
             assert(in.senderAddress == proxyAddress, ErrorsPool.NotFromProxy);
         }
         PayoutBurnNotification => {
-            var storage = lazy Storage.load();
             var nominators = lazy storage.nominators.load();
 
             val itemAddress = calculateItemState(

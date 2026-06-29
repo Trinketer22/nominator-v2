@@ -213,6 +213,8 @@ struct (0b1) Storage {
     pendingWithdrawals: coins = 0
 }
 
+type PoolStorage = PoolStorageNotInitialized | Storage;
+
 struct WithdrawalStatus {
     pendingWithdrawals: Cell<PendingOps>?
 }
@@ -253,6 +255,12 @@ fun Storage.load(): Storage {
         contract.getData(),
         { throwIfOpcodeDoesNotMatch: ErrorsPool.PoolStorageNotInitialized },
     );
+}
+
+fun PoolStorage.load(): PoolStorage {
+    return PoolStorage.fromCell(
+    contract.getData()
+    )
 }
 
 fun Storage.save(self) {
