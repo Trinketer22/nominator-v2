@@ -606,6 +606,10 @@ get fun `test validator should be able to recover stake and rotate round`() {
     expect(validatorAfter.validator.usageState & 2).toEqual(0);
     // Usage in odd round intact
     expect(validatorAfter.validator.usageState & 1).toEqual(1);
+    // println("Refund amount {} {} {}", valStateBefore.validator.refundAmount, validatorAfter.validator.refundAmount, validators.maxRefundAmount);
+    expect(valStateBefore.validator.refundAmount).toBeGreater(validators.maxRefundAmount);
+    expect(validatorAfter.validator.refundAmount).toBeGreater(0);
+    expect(validatorAfter.validator.refundAmount).toBeLess(validators.maxRefundAmount);
     // And sets are rotated!
     expect(validatorAfter.usage.curRoundUsage == null).toBeTrue();
     expect(validatorAfter.usage.prevRoundUsage).toEqual(valStateBefore.usage.curRoundUsage);
@@ -644,6 +648,72 @@ get fun `test validator should be able to recover stake and rotate round`() {
     val nextRoundProfit = getInternalMessageValue(recoverMsg.info).grams - prevRound.usage.tonUsed;
     expect(nextRoundProfit).toBeGreater(0);
     // And loop goes on
+}
+
+get fun `test validator should be able to fully close usage record for both rounds`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, owner, _notOwner, validator, _nominators) = setupPoolWithNominators(40);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+
+    val poolBefore = pool.getPoolData();
+    val validators = poolBefore.validators.load();
+    val validatorBefore = pool.getValidatorInfo(validator);
+    expect(validatorBefore.validator.usageState).toEqual(RoundAllowance.InAllRounds as int);
+    // 2 stakes + 2 routations
+    expect(validatorBefore.validator.refundAmount).toEqual(ton("4"));
+    val recovery = waitAndRecoverStake(pool, validator, elector.address);
+    expect(recovery).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+    expect(recovery).toHaveTx<StakeReturned>({ from: pool.address, to: validator });
+
+    val elections = announceElections(elector);
+
+    runElections(elector, stakes, limits);
+
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+    val beforeRecovery = pool.getValidatorInfo(validator);
+    val secondRecovery = waitAndRecoverStake(pool, validator, elector.address);
+    val refundBonus = calculateGasFee(BASECHAIN, REFUND_BONUS_GAS);
+    expect(secondRecovery).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+    val refundTx = secondRecovery.findTransaction<StakeReturned>({
+        from: pool.address,
+        to: validator,
+    });
+    expect(refundTx).toBeNotNull();
+
+    val refundMsg = refundTx!.loadInMsg<StakeReturned>();
+
+    expect(getInternalMessageValue(refundMsg.info).grams as int).toBeApproxEqAbs(
+        beforeRecovery.validator.refundAmount,
+        ton("0.01"),
+    );
+
+    val poolAfter = pool.getPoolData();
+    val validatorsAfter = poolAfter.validators.load();
+    expect(validatorsAfter.activeSlots).toEqual(0);
+    expect(validatorsAfter.stakeUsed).toEqual(0);
+    val validatorAfter = pool.getValidatorInfo(validator);
+    expect(validatorAfter.validator.usageState).toEqual(0);
+    expect(validatorAfter.validator.refundAmount).toEqual(0);
+    expect(validatorAfter.usage.curRoundUsage).toBeNull();
+    expect(validatorAfter.usage.prevRoundUsage).toBeNull();
 }
 
 get fun `test anybody could rotate vset for all the validators`() {

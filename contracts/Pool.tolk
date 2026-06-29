@@ -1027,8 +1027,12 @@ fun onInternalMessage(in: InMessage) {
                 }).send(SEND_MODE_REGULAR | SEND_MODE_IGNORE_ERRORS);
 
                 // Who we owe are all forgiven
-                validator.data.refundAmount = 0;
                 validator.data.usageState &= ~parityToMask(proxyData.parity);
+                if (validator.data.usageState == 0) {
+                    validator.data.refundAmount = 0;
+                } else {
+                    validator.data.refundAmount -= refundAmount;
+                }
                 validators.updateValidatorByAddress(stakeReturned.validator, validator);
 
                 if (storage.nominatorsAmount > 0) {
