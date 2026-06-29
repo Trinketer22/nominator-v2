@@ -266,6 +266,32 @@ fun Storage.finalizeRound(mutate self, rotationStatus: RotationStatus): int {
     return sentTotal;
 }
 
+fun Storage.getStakableBalance(self, inValue: coins, stakeUsed: int) {
+    // pendingDeposits nominated in coins.
+    // pendingWithdrawals howevever are nominated in shares
+    // thus require conversion
+    // It's a mulDiv, so not a big deal.
+    // It is safe to use spot price, because
+    // if price changes, pool obligations change accordingly, since it is nominated in shares
+    val estPendingWithdrawals = calcSharePrice(
+        self.pendingWithdrawals,
+        self.nominatorsAmount,
+        self.poolSupply,
+    );
+    // This is available balance for staking
+    // Excluding
+    // 1) Incoming value, because it funds gas
+    // 2) All the pending aggregate
+    // 3) Storage reserves
+    val availableBalance = contract.getOriginalBalance() - inValue - self.pendingDeposits -
+    estPendingWithdrawals -
+    POOL_MIN_STORAGE;
+
+    val totalBalance = availableBalance + stakeUsed;
+
+    return (availableBalance, totalBalance, estPendingWithdrawals);
+}
+
 fun getMaxPunishmentInt(stake: int): int {
     val punishmentConf = blockchain.configParam(40);
 
@@ -678,28 +704,12 @@ fun onInternalMessage(in: InMessage) {
                     in.senderAddress,
                     ErrorsPool.ValidatorNotFound,
                 )!;
-                // pendingDeposits nominated in coins.
-                // pendingWithdrawals howevever are nominated in shares
-                // thus require conversion
-                // It's a mulDiv, so not a big deal.
-                // It is safe to use spot price, because
-                // if price changes, pool obligations change accordingly, since it is nominated in shares
-                val estPendingWithdrawals = calcSharePrice(
-                    storage.pendingWithdrawals,
-                    storage.nominatorsAmount,
-                    storage.poolSupply,
-                );
-                // This is available balance for staking
-                // Excluding
-                // 1) Incoming value, because it funds gas
-                // 2) All the pending aggregate
-                // 3) Storage reserves
-                val availableBalance = contract.getOriginalBalance() - in.valueCoins -
-                storage.pendingDeposits -
-                estPendingWithdrawals -
-                POOL_MIN_STORAGE;
-                val totalBalance = availableBalance + validators.stakeUsed;
 
+                val (
+                    availableBalance,
+                    totalBalance,
+                    estPendingWithdrawals,
+                ) = storage.getStakableBalance(in.valueCoins, validators.stakeUsed);
                 assert(msg.value <= availableBalance, ErrorsPool.NotEnoughPoolBalance);
                 val stakeAmountSent = msg.value - ton("1");
 
@@ -723,14 +733,11 @@ fun onInternalMessage(in: InMessage) {
                 NewStakeBody.fromSlice(msg.signedBody);
 
                 val valLimit = valData.data.limit;
-                val stakeMax = match (valLimit) {
-                    ValidatorLimitTon => min(validators.maxTonPerValidator, valLimit.maxTon),
-                    ValidatorLimitShare => min(
-                        mulDivQuiet(totalBalance, valLimit.maxShare, SHARE_BASE),
-                        validators.maxTonPerValidator,
-                    ),
-                    null => validators.maxTonPerValidator as int,
-                };
+                val stakeMax = getValidatorLimit(
+                    valLimit,
+                    totalBalance,
+                    validators.maxTonPerValidator,
+                );
 
                 assert(msg.value <= stakeMax, ErrorsPool.StakeAboveTheLimit);
 

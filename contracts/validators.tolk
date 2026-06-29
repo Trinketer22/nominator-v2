@@ -412,3 +412,14 @@ fun getProxyState(validator: address, isOdd: bool): AutoDeployAddress {
 fun getProxyAddress(validator: address, isOdd: bool): address {
     return getProxyState(validator, isOdd).calculateAddress();
 }
+
+fun getValidatorLimit(limit: ValidatorLimit?, totalBalance: int, maxTonPerValidator: int) {
+    return match (limit) {
+        ValidatorLimitTon => min(maxTonPerValidator, limit.maxTon),
+        ValidatorLimitShare => min(
+            mulDivQuiet(totalBalance, limit.maxShare, SHARE_BASE),
+            maxTonPerValidator,
+        ),
+        null => maxTonPerValidator as int,
+    };
+}
