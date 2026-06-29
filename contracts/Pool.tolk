@@ -321,15 +321,15 @@ fun handleNewStakeError(sender: address, value: int) {
     if (stakeReturned != null) {
         var round = stakeReturned.round;
         val delta = abs(stakeReturned.data.tonUsed - value);
+        round.users.delete(sender);
         if (delta <= ton("1")) {
             // If delta is withing newStake reserve
             // make it look like it never happen
-            round.users.delete(sender);
             round.used = max(round.used - stakeReturned.data.tonUsed, 0);
         } else {
             // Otherwise book it as real loss.
             // practically looks impossible
-            round.coverUsage(sender, value);
+            round.returned += value;
         }
 
         if (stakeReturned.isCurrentRound) {
