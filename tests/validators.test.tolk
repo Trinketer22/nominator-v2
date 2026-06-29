@@ -817,6 +817,65 @@ get fun `test anybody could rotate vset for all the validators`() {
     expect(validatorsAfter.vsetHash).toEqual(prevSetHash >> 128);
 }
 
+get fun `test vset can't rotate twice`() {
+    val (elector, stakes, _limits) = setupElector();
+    val (pool, owner, notOwner, validator, _nominators) = setupPoolWithNominators(40);
+
+    val testStake = stakes.minStake * 2;
+    val testValidator = setupRandomValidator(pool, owner.address);
+    var elections = announceElections(elector);
+
+    assertPoolNewStake(validator, pool, elector, elections, testStake);
+    assertPoolNewStake(testValidator, pool, elector, elections, testStake);
+
+    var newSetHash = updateVsetHash();
+
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+
+    var poolAfter = pool.getPoolData();
+    var validatorsAfter = poolAfter.validators.load();
+    var prevRound = validatorsAfter.prevRound.load();
+    val mainAfter = pool.getValidatorInfo(validator);
+    expect(validatorsAfter.vsetHash).toEqual(newSetHash >> 128);
+
+    expect(prevRound).toRotate({
+        pool: pool.address,
+        address: validator,
+        prevCount: 0,
+        vsetHash: newSetHash,
+    });
+
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+    var validatorsBefore = validatorsAfter;
+
+    poolAfter = pool.getPoolData();
+    validatorsAfter = poolAfter.validators.load();
+    expect(validatorsAfter.vsetHash).toEqual(validatorsBefore.vsetHash);
+    expect(validatorsAfter.curRound).toEqual(validatorsBefore.curRound);
+    expect(validatorsAfter.prevRound).toEqual(validatorsBefore.prevRound);
+
+    pool.sendUpdateVset(notOwner.address, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+
+    poolAfter = pool.getPoolData();
+    validatorsAfter = poolAfter.validators.load();
+    prevRound = validatorsAfter.prevRound.load();
+    expect(validatorsAfter.curRound).toEqual(validatorsBefore.curRound);
+    expect(prevRound).toRotate({
+        pool: pool.address,
+        address: testValidator,
+        vsetHash: newSetHash,
+        prevCount: 0,
+    });
+
+    validatorsBefore = validatorsAfter;
+    pool.sendUpdateVset(notOwner.address, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+    poolAfter = pool.getPoolData();
+    validatorsAfter = poolAfter.validators.load();
+    expect(validatorsAfter.vsetHash).toEqual(validatorsBefore.vsetHash);
+    expect(validatorsAfter.curRound).toEqual(validatorsBefore.curRound);
+    expect(validatorsAfter.prevRound).toEqual(validatorsBefore.prevRound);
+}
+
 get fun `test new stake error should not bleed pool balance`() {
     val (elector, stakes, _limits) = setupElector();
     val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
