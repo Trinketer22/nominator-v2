@@ -1,3 +1,5 @@
+import "@contracts/types"
+
 @inline
 fun mulDivQuiet(multA: int, multB: int, divisor: int): int {
     if (multB == divisor) {
@@ -30,4 +32,31 @@ fun parityToMask(isOdd: bool): int {
     }
     return RoundAllowance.inEvenRounds as int;
     */
+}
+
+fun getMaxPunishmentInt(stake: int): int {
+    val punishmentConf = blockchain.configParam(40);
+
+    if (punishmentConf == null) {
+        return ton("101");
+    }
+
+    val parsedConf = PushishmentConfig.fromCell(punishmentConf);
+
+    var fine = parsedConf.defaultFlatFine;
+    var finePart = parsedConf.defaultProportionalFine;
+
+    fine *= parsedConf.severityFlatMult;
+    fine >>= 8;
+
+    finePart *= parsedConf.severityProportinalMult;
+    finePart >>= 8;
+
+    fine *= parsedConf.longFlatMult;
+    fine >>= 8;
+
+    finePart *= parsedConf.longProportinalMult;
+    finePart >>= 8;
+
+    return min(stake, fine + mulDivFloor(stake, finePart, 1 << 32));
 }

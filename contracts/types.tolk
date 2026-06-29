@@ -213,7 +213,7 @@ struct (0b1) Storage {
     pendingWithdrawals: coins = 0
 }
 
-type PoolStorage = PoolStorageNotInitialized | Storage;
+type PoolStorage = PoolStorageNotInitialized | Storage
 
 struct WithdrawalStatus {
     pendingWithdrawals: Cell<PendingOps>?
@@ -259,8 +259,8 @@ fun Storage.load(): Storage {
 
 fun PoolStorage.load(): PoolStorage {
     return PoolStorage.fromCell(
-    contract.getData()
-    )
+        contract.getData(),
+    );
 }
 
 fun Storage.save(self) {

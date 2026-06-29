@@ -205,3 +205,12 @@ struct (0xe4649054) RoundInfoMessage {
     queryId: uint64
     info: RoundInfo
 }
+
+fun refundError(to: address, ctx: RefundContext, mode: int) {
+    createMessage({
+        bounce: false,
+        dest: to,
+        value: 0,
+        body: RefundMessage { context: ctx },
+    }).send(mode);
+}

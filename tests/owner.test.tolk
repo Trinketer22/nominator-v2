@@ -55,7 +55,11 @@ get fun `test owner should be able to add more validators`() {
         val expectedProxyCount = allowance == RoundAllowance.InAllRounds ? 2 : 1;
         val balanceAfter = testing.getAccountBalance(pool.address);
         // For each proxy count there should be a slashing reserve
-        expect(balanceAfter).toEqual(balanceBefore + maxPunishment * expectedProxyCount);
+        // Delta for storage fee
+        expect(balanceAfter as int).toBeApproxEqAbs(
+            balanceBefore + maxPunishment * expectedProxyCount,
+            3,
+        );
         // Up to two proxy deploys and refund
         expect(getTxActionPh(addTx!).msgsCreated).toEqual(expectedProxyCount + 1);
         val resInfo = pool.getValidatorInfo(testValidator);
@@ -138,7 +142,7 @@ get fun `test owner should be able to remove validator`() {
     expect(valdatorsUpd.validators.exists(testValidator)).toBeFalse();
 }
 
-get fun `test only owner should be able to remove validator`() {
+get fun `test owner should not be able to remove main validator`() {
     val (pool, owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
 
     val balanceBefore = testing.getAccountBalance(pool.address);
@@ -156,6 +160,28 @@ get fun `test only owner should be able to remove validator`() {
         initialBalance: balanceBefore,
         previousState: stateBefore,
         error: ErrorsPool.MainValidatorCantBeRemoved,
+    });
+}
+
+get fun `test only owner should be able to remove validator`() {
+    val (pool, owner, notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    val testValidator = setupRandomValidator(pool, owner.address);
+    val balanceBefore = testing.getAccountBalance(pool.address);
+    val stateBefore = getAccountData(pool.address);
+    val res = pool.sendRemoveValidator(
+        notOwner.address,
+        DEFAULT_QUERY_ID,
+        testValidator,
+        { value: ton("10000") },
+    );
+
+    expect(res).toHaveRefund<RemoveValidator>({
+        from: pool.address,
+        to: notOwner.address,
+        initialBalance: balanceBefore,
+        previousState: stateBefore,
+        error: ErrorsPool.NotOwner,
     });
 }
 
@@ -611,6 +637,23 @@ get fun `test owner should be able to withdraw it's share`(requestValue: coins, 
             balanceBefore - txStorageFee.storageFeesCollected - boundRequest,
         );
     }
+}
+
+get fun `test only owner should be able to withdraw it's share`() {
+    val (elector, stakes, _limits) = setupElector();
+    val (pool, owner, notOwner, _validator, _nominators) = setupPoolWithNominators(20);
+
+    val maxOwnerShare = getMaxOwnerShare(pool);
+
+    val stateBefore = getAccountData(pool.address);
+    val res = pool.sendOwnerWithdrawal(notOwner.address, DEFAULT_QUERY_ID, maxOwnerShare);
+
+    expect(res).toHaveRefund<OwnerWithdrawal>({
+        error: ErrorsPool.NotOwner,
+        from: pool.address,
+        previousState: stateBefore,
+        to: notOwner.address,
+    });
 }
 
 get fun `test owner share should decrease accordingly to withdrawn amount`() {

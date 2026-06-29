@@ -3,6 +3,7 @@ import "@stdlib/reflection"
 import "@contracts/fees"
 import "@contracts/nominators"
 import "@contracts/opcode"
+import "@contracts/owner"
 import "@contracts/validators"
 import "config"
 import "errors"
@@ -26,7 +27,8 @@ type AllowedComments =
     | WithdrawalMessage
     | WithdrawalReward
 
-type PostInit =  TextComment
+type PostInit =
+    | TextComment
     | UpdateVset
     | NewStake
     | NewStakeOk
@@ -35,23 +37,12 @@ type PostInit =  TextComment
     | RecoverStakeOk
     | RecoverStakeError
     | PayoutBurnNotification
-    | AddValidator
-    | RemoveValidator
     | AddFunds
-    | OwnerWithdrawal
-    | UpdateLimits
+    | OwnerMessages
 
-type AllowedMessage = PostInit
+type AllowedMessage =
+    | PostInit
     | InitPoolMessage
-
-fun refundError(to: address, ctx: RefundContext, mode: int) {
-    createMessage({
-        bounce: false,
-        dest: to,
-        value: 0,
-        body: RefundMessage { context: ctx },
-    }).send(mode);
-}
 
 fun handleTextComment(comment: slice, sender: address, value: coins) {
     val msg = AllowedComments.fromSlice(
@@ -293,33 +284,6 @@ fun Storage.getStakableBalance(self, inValue: coins, stakeUsed: int) {
     return (availableBalance, totalBalance, estPendingWithdrawals);
 }
 
-fun getMaxPunishmentInt(stake: int): int {
-    val punishmentConf = blockchain.configParam(40);
-
-    if (punishmentConf == null) {
-        return ton("101");
-    }
-
-    val parsedConf = PushishmentConfig.fromCell(punishmentConf);
-
-    var fine = parsedConf.defaultFlatFine;
-    var finePart = parsedConf.defaultProportionalFine;
-
-    fine *= parsedConf.severityFlatMult;
-    fine >>= 8;
-
-    finePart *= parsedConf.severityProportinalMult;
-    finePart >>= 8;
-
-    fine *= parsedConf.longFlatMult;
-    fine >>= 8;
-
-    finePart *= parsedConf.longProportinalMult;
-    finePart >>= 8;
-
-    return min(stake, fine + mulDivFloor(stake, finePart, 1 << 32));
-}
-
 get fun get_max_punishment(stake: int): int {
     val storage = Storage.load();
     val validators = lazy storage.validators.load();
@@ -380,81 +344,89 @@ fun handleNewStakeError(sender: address, value: int) {
 }
 
 fun onInternalMessage(in: InMessage) {
+    var storage = PoolStorage.load();
+    if (storage is PoolStorageNotInitialized) {
+        val msg = InitPoolMessage.fromSlice(
+            in.body,
+            { throwIfOpcodeDoesNotMatch: ErrorsPool.PoolStorageNotInitialized },
+        );
+        val nmSettings = msg.nominatorsSettings.load();
+        assert(in.senderAddress == storage.owner, ErrorsPool.NotOwner);
+        assert(msg.maxTonPerValidator > msg.minTonPerValidator, ErrorsPool.InvalidMaxMin);
+        assert(msg.roundAllowance as int > 0, ErrorsPool.AtLeastOneRoundShouldBeAlowed);
+        assert(msg.ownerShare <= SHARE_BASE, ErrorsPool.InvalidOwnerShare);
+        var reserveAmount = POOL_MIN_STORAGE;
+        val nRounds = max(msg.roundAllowance as int - 1, 1);
 
-    var storage= PoolStorage.load();
-    if(storage is PoolStorageNotInitialized) {
-       val msg = InitPoolMessage.fromSlice(in.body, {throwIfOpcodeDoesNotMatch: ErrorsPool.PoolStorageNotInitialized});
-       val nmSettings = msg.nominatorsSettings.load();
-       assert(in.senderAddress == storage.owner, ErrorsPool.NotOwner);
-       assert(msg.maxTonPerValidator > msg.minTonPerValidator, ErrorsPool.InvalidMaxMin);
-       assert(msg.roundAllowance as int > 0, ErrorsPool.AtLeastOneRoundShouldBeAlowed);
-       assert(msg.ownerShare <= SHARE_BASE, ErrorsPool.InvalidOwnerShare);
-       var reserveAmount = POOL_MIN_STORAGE;
-       val nRounds = max(msg.roundAllowance as int - 1, 1);
+        if (nmSettings.maxNominators > 0) {
+            reserveAmount += getMaxPunishmentInt(msg.minTonPerValidator) * nRounds;
+        }
 
-       if (nmSettings.maxNominators > 0) {
-           reserveAmount += getMaxPunishmentInt(msg.minTonPerValidator) * nRounds;
-       }
+        assert(in.valueCoins >=
+        reserveAmount + PROXY_MIN_STORAGE * nRounds + ton("1"), ErrorsPool.NotEnoughGas);
 
-       assert(in.valueCoins >=
-       reserveAmount + PROXY_MIN_STORAGE * nRounds + ton("1"), ErrorsPool.NotEnoughGas);
+        reserveGramsOnBalance(
+            reserveAmount,
+            RESERVE_MODE_EXACT_AMOUNT | RESERVE_MODE_BOUNCE_ON_ACTION_FAIL,
+        );
 
-       reserveGramsOnBalance(
-           reserveAmount,
-           RESERVE_MODE_EXACT_AMOUNT | RESERVE_MODE_BOUNCE_ON_ACTION_FAIL,
-       );
+        var mainValidator = Validator {
+            usageState: 0,
+            refundAmount: 0,
+            limit: msg.limit,
+        };
 
-       var mainValidator = Validator {
-           usageState: 0,
-           refundAmount: 0,
-           limit: msg.limit,
-       };
+        mainValidator.deployProxy(
+            msg.mainValidator,
+            storage.owner,
+            in.valueCoins - reserveAmount,
+            msg.queryId,
+        );
 
-       mainValidator.deployProxy(
-           msg.mainValidator,
-           storage.owner,
-           in.valueCoins - reserveAmount,
-           msg.queryId,
-       );
+        createMessage({
+            bounce: false,
+            dest: storage.owner,
+            value: 0,
+            body: InitPoolSuccess { queryId: msg.queryId },
+        }).send(SEND_MODE_CARRY_ALL_BALANCE);
 
-       createMessage({
-           bounce: false,
-           dest: storage.owner,
-           value: 0,
-           body: InitPoolSuccess { queryId: msg.queryId },
-       }).send(SEND_MODE_CARRY_ALL_BALANCE);
+        val newStorage = Storage {
+            owner: storage.owner,
+            poolId: storage.poolId,
+            ownerShare: msg.ownerShare,
+            validators: ValidatorsData {
+                mainValidatorAddress: msg.mainValidator,
+                maxTonPerValidator: msg.maxTonPerValidator,
+                minTonPerValidator: msg.minTonPerValidator,
+                curRound: RoundData { roundIndex: 0 }.toCell(),
+                prevRound: RoundData { roundIndex: 0 }.toCell(),
+                vsetHash: getCurVset().vsetHash >> 128,
+                mainValidatorData: mainValidator.toCell(),
+                maxRefundAmount: msg.maxRefund,
+            }.toCell(),
+            maxNominators: nmSettings.maxNominators,
+            nominators: NominatorsData {
+                minStake: nmSettings.minStake,
+                minWithdrawableReward: nmSettings.minWithdrawableRewards,
+            }.toCell(),
+        };
 
-       val newStorage = Storage {
-           owner: storage.owner,
-           poolId: storage.poolId,
-           ownerShare: msg.ownerShare,
-           validators: ValidatorsData {
-               mainValidatorAddress: msg.mainValidator,
-               maxTonPerValidator: msg.maxTonPerValidator,
-               minTonPerValidator: msg.minTonPerValidator,
-               curRound: RoundData { roundIndex: 0 }.toCell(),
-               prevRound: RoundData { roundIndex: 0 }.toCell(),
-               vsetHash: getCurVset().vsetHash >> 128,
-               mainValidatorData: mainValidator.toCell(),
-               maxRefundAmount: msg.maxRefund,
-           }.toCell(),
-           maxNominators: nmSettings.maxNominators,
-           nominators: NominatorsData {
-               minStake: nmSettings.minStake,
-               minWithdrawableReward: nmSettings.minWithdrawableRewards,
-           }.toCell(),
-       };
-
-       newStorage.save();
-       return;
+        newStorage.save();
+        return;
     }
 
+    if (in.senderAddress == storage.owner) {
+        val handled = processOwnerAction(in.body, storage, in.senderAddress, in.valueCoins);
+        if (handled) {
+            return;
+        }
+    }
     val msg = AllowedMessage.fromSlice(in.body, { throwIfOpcodeDoesNotMatch: 0xffff });
 
     match (msg) {
         InitPoolMessage => {
             throw ErrorsPool.AlreadyInitialized;
-        },
+        }
         TextComment => {
             try {
                 handleTextComment(msg.comment, in.senderAddress, in.valueCoins);
@@ -507,101 +479,30 @@ fun onInternalMessage(in: InMessage) {
 
             storage.save();
         }
+        OwnerWithdrawal => {
+            refundError(
+                in.senderAddress,
+                {
+                    op: opcode<OwnerWithdrawal>(),
+                    queryId: msg.queryId,
+                    errorCode: ErrorsPool.NotOwner,
+                },
+                SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE,
+            );
+        }
         AddValidator => {
-            try {
-                assert(in.senderAddress == storage.owner, ErrorsPool.NotOwner);
-                var validators = lazy storage.validators.load();
-
-                if (msg.limits != null) {
-                    validators.assertValidatorLimit(msg.limits);
-                }
-
-                var newValidator: Validator = {
-                    usageState: 0,
-                    roundParity: msg.roundAllowance,
-                    limit: msg.limits,
-                    refundAmount: 0,
-                };
-
-                val nRounds = max(msg.roundAllowance as int - 1, 1);
-                val reserveAmount = nRounds * getMaxPunishmentInt(validators.minTonPerValidator);
-                val valueLeft = in.valueCoins - NEW_VALIDATOR_FEE - reserveAmount;
-
-                reserveGramsOnBalance(reserveAmount, RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE);
-
-                newValidator.deployProxy(msg.validator, storage.owner, valueLeft, msg.queryId);
-                val newAdded = validators.validators.addIfNotExists(msg.validator, newValidator);
-
-                assert(newAdded, ErrorsPool.ValidatorAlreadyExits);
-                validators.activeValidators += 1;
-                assert(validators.activeValidators <= (1 << 7), ErrorsPool.TooManyValidators);
-
-                storage.validators = validators.toCell();
-                storage.save();
-
-                refundError(
-                    in.senderAddress,
-                    {
-                        op: reflect.serializationPrefixOf<AddValidator>().0,
-                        queryId: msg.queryId,
-                        errorCode: 0,
-                    },
-                    SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS,
-                );
-            } catch (e) {
-                refundError(
-                    in.senderAddress,
-                    {
-                        op: reflect.serializationPrefixOf<AddValidator>().0,
-                        queryId: msg.queryId,
-                        errorCode: e,
-                    },
-                    SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE,
-                );
-            }
+            refundError(
+                in.senderAddress,
+                {
+                    op: reflect.serializationPrefixOf<AddValidator>().0,
+                    queryId: msg.queryId,
+                    errorCode: ErrorsPool.NotOwner,
+                },
+                SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE,
+            );
         }
         // Just accept funds
         AddFunds => {}
-        OwnerWithdrawal => {
-            try {
-                val validators = lazy storage.validators.load();
-                assert(in.senderAddress == storage.owner, ErrorsPool.NotOwner);
-
-                // pending withdrawals are alredy part of nominatorsAmount
-                val pendingAmounts = storage.pendingDeposits;
-
-                val availableBalance = contract.getOriginalBalance() - in.valueCoins -
-                pendingAmounts -
-                POOL_MIN_STORAGE;
-
-                val totalBalance = availableBalance + validators.stakeUsed;
-
-                val ownerShare = totalBalance - storage.nominatorsAmount -
-                getMaxPunishmentInt(validators.minTonPerValidator) * validators.activeSlots;
-                val withdrawable = min(ownerShare, availableBalance);
-                assert(msg.amount <= withdrawable, ErrorsPool.NotEnoughPoolBalance);
-                reserveGramsOnBalance(
-                    msg.amount,
-                    RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_NEGATE_AMOUNT,
-                );
-                createMessage({
-                    bounce: false,
-                    dest: in.senderAddress,
-                    value: 0,
-                    body: OwnerWithdrawalSuccess { queryId: msg.queryId },
-                }).send(SEND_MODE_CARRY_ALL_BALANCE);
-            } catch (e) {
-                refundError(
-                    in.senderAddress,
-                    {
-                        op: opcode<OwnerWithdrawal>(),
-                        queryId: msg.queryId,
-                        errorCode: e,
-                    },
-                    SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE,
-                );
-            }
-        }
         UpdateLimits => {
             try {
                 var validators = lazy storage.validators.load();
@@ -657,42 +558,15 @@ fun onInternalMessage(in: InMessage) {
             }
         }
         RemoveValidator => {
-            try {
-                assert(in.senderAddress == storage.owner, ErrorsPool.NotOwner);
-                var validators = lazy storage.validators.load();
-                assert(msg.validator !=
-                validators.mainValidatorAddress, ErrorsPool.MainValidatorCantBeRemoved);
-                val validatorLookup = validators.validators.deleteAndGetDeleted(msg.validator);
-                assert(validatorLookup.isFound, ErrorsPool.ValidatorNotFound);
-                var validatorData = validatorLookup.loadValue();
-                if (validatorData.usageState > 0) {
-                    // Ban it from new stakes, but keeping the record till return
-                    validatorData.isBanned = true;
-                    validators.validators.set(msg.validator, validatorData);
-                }
-                storage.validators = validators.toCell();
-                storage.save();
-
-                refundError(
-                    in.senderAddress,
-                    {
-                        op: opcode<RemoveValidator>(),
-                        errorCode: 0,
-                        queryId: msg.queryId,
-                    },
-                    SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE | SEND_MODE_IGNORE_ERRORS,
-                );
-            } catch (e) {
-                refundError(
-                    in.senderAddress,
-                    {
-                        op: opcode<RemoveValidator>(),
-                        errorCode: e,
-                        queryId: msg.queryId,
-                    },
-                    SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE | SEND_MODE_IGNORE_ERRORS,
-                );
-            }
+            refundError(
+                in.senderAddress,
+                {
+                    op: opcode<RemoveValidator>(),
+                    errorCode: ErrorsPool.NotOwner,
+                    queryId: msg.queryId,
+                },
+                SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE | SEND_MODE_IGNORE_ERRORS,
+            );
         }
         NewStake => {
             try {
