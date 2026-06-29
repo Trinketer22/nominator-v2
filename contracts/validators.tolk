@@ -262,7 +262,7 @@ fun RoundData.rotateRoundRecords(mutate self, address: address, curVset: int): b
     val usageLookup = self.users.get(address);
     if (usageLookup.isFound) {
         var usageData = usageLookup.loadValue();
-        if (usageData.rotation.rotateVset(curVset, true)) {
+        if (usageData.rotation.rotateVset(curVset)) {
             self.users.set(address, usageData);
             return true;
         }
@@ -336,16 +336,13 @@ fun Validator.rotateVset(
     return (updatedCurrent, updatedPrev);
 }
 
-fun RotationData.rotateVset(mutate self, newSetHash: int, hasUsed: bool): bool {
+fun RotationData.rotateVset(mutate self, newSetHash: int): bool {
     var hasRotated = self.vsetHash != newSetHash;
 
     if (hasRotated) {
         self.vsetHash = newSetHash;
         self.rotationTime = blockchain.now();
-        if (hasUsed) {
-            self.rotationCount = (self.rotationCount + 1) % 0xff;
-        }
-        hasRotated = true;
+        self.rotationCount = (self.rotationCount + 1) % 0xff;
     }
     return hasRotated;
 }
