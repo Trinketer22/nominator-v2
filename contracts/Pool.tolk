@@ -1189,6 +1189,11 @@ get fun get_validator_info(address: address): GetValidatorInfo {
     };
 }
 
+get fun get_validator_info_mtc(workchain: int, hash: int) {
+    val address = address.fromWorkchainAndHash(workchain, hash);
+    return get_validator_info(address);
+}
+
 get fun get_limits_per_validator(): (coins, coins, coins) {
     val storage = lazy Storage.load();
     val validators = lazy storage.validators.load();
