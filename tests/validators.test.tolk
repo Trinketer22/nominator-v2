@@ -164,7 +164,7 @@ get fun `test validator ton limit should affect amount of stake allowed to be ta
 }
 
 get fun `test validator share limit should affect amount of stake allowed to be taken`() {
-    val (elector, _stakes, _limits) = setupElector();
+    val (elector, stakes, limits) = setupElector();
     val (pool, owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(10);
 
     val (_ownerShare, _validatorsSettings, _nominatorsSettings) = defaultDeployParams();
@@ -186,7 +186,24 @@ get fun `test validator share limit should affect amount of stake allowed to be 
         elections,
         maxStake + 1,
     );
-    assertPoolNewStake(testValidator, pool, elector, elections, maxStake - 1);
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        testValidator,
+        elections,
+        false,
+        maxStake - 1,
+    );
+    // Stake is taken at this point, however, since share limit is calculateAddress
+    // based on the total theoretical pool balance, limit should not change
+    announceElections(elector);
+    expect(pool.getValidatorInfo(testValidator).stakeable as int).toBeApproxEqAbs(
+        maxStake,
+        ton("1"),
+    );
+    // assertPoolNewStake(testValidator, pool, elector, elections, maxStake - 1);
 }
 
 get fun `test shoulld reject new stake when balance is below the requested value`() {
