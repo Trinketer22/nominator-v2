@@ -47,39 +47,6 @@ fun Pool.deploy(self, from: address, config: SendParams = {}): SendResultList {
     return net.send(from, genericMsg);
 }
 
-fun Pool.sendInitPoolMessage(
-    self,
-    from: address,
-    queryId: uint64,
-    mainValidator: address,
-    roundAllowance: RoundAllowance,
-    limit: ValidatorLimitTon | ValidatorLimitShare | null,
-    ownerShare: uint25,
-    maxTonPerValidator: coins,
-    minTonPerValidator: coins,
-    maxRefund: coins,
-    nominatorsSettings: NominatorsSettings,
-    config: SendParams = {},
-): SendResultList {
-    val genericMsg = createMessage({
-        bounce: config.bounce,
-        value: config.value,
-        dest: self.address,
-        body: InitPoolMessage {
-            queryId,
-            mainValidator,
-            roundAllowance,
-            limit,
-            ownerShare,
-            maxTonPerValidator,
-            minTonPerValidator,
-            maxRefund,
-            nominatorsSettings: nominatorsSettings.toCell(),
-        },
-    });
-    return net.send(from, genericMsg);
-}
-
 fun Pool.sendTextComment(
     self,
     from: address,
@@ -253,6 +220,21 @@ fun Pool.sendPayoutBurnNotification(
     return net.send(from, genericMsg);
 }
 
+fun Pool.sendAddFunds(
+    self,
+    from: address,
+    queryId: uint64,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: AddFunds { queryId },
+    });
+    return net.send(from, genericMsg);
+}
+
 fun Pool.sendAddValidator(
     self,
     from: address,
@@ -267,6 +249,22 @@ fun Pool.sendAddValidator(
         value: config.value,
         dest: self.address,
         body: AddValidator { queryId, validator, roundAllowance, limits },
+    });
+    return net.send(from, genericMsg);
+}
+
+fun Pool.sendUpdateLimits(
+    self,
+    from: address,
+    queryId: uint64,
+    limit: GlobalValidatorsLimit | GlobalNominatorsLimit | ValidatorSpecific,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: UpdateLimits { queryId, limit },
     });
     return net.send(from, genericMsg);
 }
@@ -287,21 +285,6 @@ fun Pool.sendRemoveValidator(
     return net.send(from, genericMsg);
 }
 
-fun Pool.sendAddFunds(
-    self,
-    from: address,
-    queryId: uint64,
-    config: SendParams = {},
-): SendResultList {
-    val genericMsg = createMessage({
-        bounce: config.bounce,
-        value: config.value,
-        dest: self.address,
-        body: AddFunds { queryId },
-    });
-    return net.send(from, genericMsg);
-}
-
 fun Pool.sendOwnerWithdrawal(
     self,
     from: address,
@@ -318,18 +301,35 @@ fun Pool.sendOwnerWithdrawal(
     return net.send(from, genericMsg);
 }
 
-fun Pool.sendUpdateLimits(
+fun Pool.sendInitPoolMessage(
     self,
     from: address,
     queryId: uint64,
-    limit: GlobalValidatorsLimit | GlobalNominatorsLimit | ValidatorSpecific,
+    mainValidator: address,
+    roundAllowance: RoundAllowance,
+    limit: ValidatorLimitTon | ValidatorLimitShare | null,
+    ownerShare: uint25,
+    maxTonPerValidator: coins,
+    minTonPerValidator: coins,
+    maxRefund: coins,
+    nominatorsSettings: NominatorsSettings,
     config: SendParams = {},
 ): SendResultList {
     val genericMsg = createMessage({
         bounce: config.bounce,
         value: config.value,
         dest: self.address,
-        body: UpdateLimits { queryId, limit },
+        body: InitPoolMessage {
+            queryId,
+            mainValidator,
+            roundAllowance,
+            limit,
+            ownerShare,
+            maxTonPerValidator,
+            minTonPerValidator,
+            maxRefund,
+            nominatorsSettings: nominatorsSettings.toCell(),
+        },
     });
     return net.send(from, genericMsg);
 }
@@ -367,6 +367,10 @@ fun Pool.getNominatorData(self, nominatorAddress: int): GetNominatorData {
 
 fun Pool.getValidatorInfo(self, address: address): GetValidatorInfo {
     return net.runGetMethod(self.address, "get_validator_info", [address]);
+}
+
+fun Pool.getValidatorInfoMtc(self, workchain: int, hash: int): GetValidatorInfo {
+    return net.runGetMethod(self.address, "get_validator_info_mtc", [workchain, hash]);
 }
 
 fun Pool.getLimitsPerValidator(self): (coins, coins, coins) {
