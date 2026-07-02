@@ -173,6 +173,7 @@ struct TonUsage {
 struct GetValidatorInfo {
     validator: Validator
     usage: ValidatorUsageRecords
+    stakeable: coins
 }
 
 struct ValidatorUsageStats {

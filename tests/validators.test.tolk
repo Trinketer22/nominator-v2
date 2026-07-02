@@ -60,11 +60,13 @@ get fun `test validator allowed for only even/odd rounds, should only stake in a
 
     // Round 0 is even
     // Even validator should succeed
+    expect(pool.getValidatorInfo(evenRoundValidator).stakeable).toBeGreaterOrEqual(minStake);
     assertPoolNewStake(evenRoundValidator, pool, elector, elections, minStake);
     val evenValidatorData = pool.getValidatorInfo(evenRoundValidator);
     expect(evenValidatorData.validator.usageState & 1).toEqual(0);
     expect(evenValidatorData.validator.usageState & 2).toEqual(2);
     // Validator that allowed only for odd rounds, should fail
+    expect(pool.getValidatorInfo(oddRoundValidator).stakeable).toEqual(0);
     assertNewStakeFailed(
         ErrorsPool.RoundNotAllowed,
         oddRoundValidator,
@@ -88,6 +90,7 @@ get fun `test validator allowed for only even/odd rounds, should only stake in a
     // Now odd round
     // Even one fails
     val nextElections = announceElections(elector);
+    expect(pool.getValidatorInfo(evenRoundValidator).stakeable).toEqual(0);
     assertNewStakeFailed(
         ErrorsPool.RoundNotAllowed,
         evenRoundValidator,
@@ -97,6 +100,7 @@ get fun `test validator allowed for only even/odd rounds, should only stake in a
         minStake,
     );
     // Odd one succeeds
+    expect(pool.getValidatorInfo(oddRoundValidator).stakeable).toBeGreaterOrEqual(minStake);
     assertPoolNewStake(oddRoundValidator, pool, elector, nextElections, minStake);
     val oddValidatorData = pool.getValidatorInfo(oddRoundValidator);
     expect(oddValidatorData.validator.usageState & 1).toEqual(1);
@@ -138,6 +142,7 @@ get fun `test validator ton limit should affect amount of stake allowed to be ta
         ValidatorLimitTon { maxTon: maxStake },
     );
 
+    expect(pool.getValidatorInfo(testValidator).stakeable).toEqual(maxStake);
     val elections = announceElections(elector);
     assertNewStakeFailed(
         ErrorsPool.StakeAboveTheLimit,
@@ -167,9 +172,11 @@ get fun `test validator share limit should affect amount of stake allowed to be 
 
     val testValidator = setupRandomValidator(pool, owner.address, ValidatorLimitShare { maxShare });
 
+    // Since no stake is yet used, and no pendings, total is practically equal to current - reserves
     val availableFunds = testing.getAccountBalance(pool.address) - POOL_MIN_STORAGE;
     val maxStake = mulDivFloor(availableFunds, maxShare, SHARE_BASE); //awailableFunds / 5;
 
+    expect(pool.getValidatorInfo(testValidator).stakeable).toEqual(maxStake);
     val elections = announceElections(elector);
     assertNewStakeFailed(
         ErrorsPool.StakeAboveTheLimit,
@@ -190,6 +197,9 @@ get fun `test shoulld reject new stake when balance is below the requested value
 
     val availableFunds = testing.getAccountBalance(pool.address) - POOL_MIN_STORAGE;
     expect(validatorsSettings.maxTonPerValidator).toBeGreater(availableFunds);
+    expect(pool.getValidatorInfo(validator).stakeable).toBeLess(
+        validatorsSettings.maxTonPerValidator,
+    );
 
     val elections = announceElections(elector);
     assertNewStakeFailed(
@@ -207,6 +217,9 @@ get fun `test shoulld reject new stake when balance is below the requested value
         validatorsSettings.maxTonPerValidator - availableFunds + DEPOSIT_GAS,
     );
 
+    expect(pool.getValidatorInfo(validator).stakeable).toEqual(
+        validatorsSettings.maxTonPerValidator,
+    );
     assertPoolNewStake(validator, pool, elector, elections, validatorsSettings.maxTonPerValidator);
 }
 
@@ -241,6 +254,7 @@ get fun `test should not be able to stake when round is closed`() {
         true,
     );
 
+    expect(pool.getValidatorInfo(additionalValidator).stakeable).toEqual(0);
     val elections = announceElections(elector);
     assertNewStakeFailed(
         ErrorsPool.RoundIsClosed,
@@ -258,6 +272,7 @@ get fun `test should not be able to stake twice in a same round`() {
 
     val elections = announceElections(elector);
     assertPoolNewStake(validator, pool, elector, elections, stakes.minStake * 2);
+    expect(pool.getValidatorInfo(validator).stakeable).toEqual(0);
     assertNewStakeFailed(
         ErrorsPool.AlreadyStakedInThatRound,
         validator,
@@ -283,6 +298,7 @@ get fun `test should not allow to stake before the elections started`() {
     config.setParamRaw(CUR_VSET_IDX, currentVset.toCell());
     testing.setConfig(config);
 
+    expect(pool.getValidatorInfo(validator).stakeable).toEqual(0);
     assertNewStakeFailed(
         ErrorsPool.ElectionsNotStarted,
         validator,
@@ -308,6 +324,7 @@ get fun `test should not allow to stake after the elections ended`() {
     config.setParamRaw(CUR_VSET_IDX, currentVset.toCell());
     testing.setConfig(config);
 
+    expect(pool.getValidatorInfo(validator).stakeable).toEqual(0);
     assertNewStakeFailed(
         ErrorsPool.ElectionsAlreadyEnded,
         validator,
@@ -370,6 +387,7 @@ get fun `test new stake should treat pending amounts as not available when allow
     expect(poolBalance - POOL_MIN_STORAGE).toBeGreater(validatorsSettings.minTonPerValidator * 2);
 
     // Even though request is just half the balance
+    expect(pool.getValidatorInfo(vaidator).stakeable).toEqual(0);
     assertNewStakeFailed(
         ErrorsPool.NotEnoughPoolBalance,
         additionalValidator,

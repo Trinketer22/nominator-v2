@@ -1144,6 +1144,38 @@ get fun get_validator_info(address: address): GetValidatorInfo {
     val storage = lazy Storage.load();
     val validators = storage.validators.load();
     val validator = validators.getValidatorByAddress(address, ErrorsPool.ValidatorNotFound)!;
+    val roundMask = parityToMask(storage.roundIndex % 2 > 0);
+    var stakeNotAvailable = validator.data.isBanned || storage.roundClosed;
+    stakeNotAvailable = stakeNotAvailable || ((roundMask & validator.data.usageState) > 0);
+    stakeNotAvailable = stakeNotAvailable || ((roundMask & validator.data.roundParity as int) == 0);
+    // Maybe excessive?
+    if (!stakeNotAvailable) {
+        val curVset = getCurVset();
+        val electionsConf = getElectionsTiming();
+        val curTime = blockchain.now();
+        stakeNotAvailable = stakeNotAvailable ||
+        curTime <= curVset.utimeUntil - electionsConf.startBefore;
+        stakeNotAvailable = stakeNotAvailable ||
+        curTime >= curVset.utimeUntil - electionsConf.endBefore;
+    }
+
+    var stakeable: coins;
+    if (stakeNotAvailable) {
+        stakeable = 0;
+    } else {
+        val (available, total, _) = storage.getStakableBalance(0, validators.stakeUsed);
+        val stakeLimit = getValidatorLimit(
+            validator.data.limit,
+            total,
+            validators.maxTonPerValidator,
+        );
+
+        stakeable = min(stakeLimit, available);
+        if (stakeable < validators.minTonPerValidator) {
+            stakeable = 0;
+        }
+    }
+
     return GetValidatorInfo {
         validator: validator.data,
         usage: validator
@@ -1153,6 +1185,7 @@ get fun get_validator_info(address: address): GetValidatorInfo {
                 validators.curRound.load(),
                 validators.prevRound.load(),
             ),
+        stakeable,
     };
 }
 
