@@ -12,8 +12,11 @@ enum ErrorsPool {
     InvalidValidatorShare
     IndividualLimitIsAboveGlobal
     IndividualLimitIsBelowGlobal
-    NotOwner = 100
-    OwnerNotFound = 101
+    MinStakeBelowNetworkLimit
+    MaxStakeAboveNetworkLimit
+
+    NotOwner = 200
+    OwnerNotFound
     WithdrawalAlreadyRequested
     NothingToWithdraw
     NothingToDeposit

@@ -5,6 +5,13 @@ struct ElectionsTiming {
     stakeHeldFor: uint32
 }
 
+struct StakingLimits {
+    minStake: coins
+    maxStake: coins
+    minTotal: coins
+    maxFactor: uint32
+}
+
 struct ElectorAddress {
     hash: uint256
 }
@@ -18,4 +25,8 @@ fun getElectorAddress(): address {
         -1,
         ElectorAddress.fromCell(blockchain.configParam(1)!).hash,
     );
+}
+
+fun StakingLimits.load() {
+    return StakingLimits.fromCell(blockchain.configParam(17)!);
 }

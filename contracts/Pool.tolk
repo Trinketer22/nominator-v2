@@ -352,7 +352,6 @@ fun onInternalMessage(in: InMessage) {
         );
         val nmSettings = msg.nominatorsSettings.load();
         assert(in.senderAddress == storage.owner, ErrorsPool.NotOwner);
-        assert(msg.maxTonPerValidator > msg.minTonPerValidator, ErrorsPool.InvalidMaxMin);
         assert(msg.roundAllowance as int > 0, ErrorsPool.AtLeastOneRoundShouldBeAlowed);
         assert(msg.ownerShare <= SHARE_BASE, ErrorsPool.InvalidOwnerShare);
         var reserveAmount = POOL_MIN_STORAGE;
@@ -390,20 +389,22 @@ fun onInternalMessage(in: InMessage) {
             body: InitPoolSuccess { queryId: msg.queryId },
         }).send(SEND_MODE_CARRY_ALL_BALANCE);
 
+        val validatorsData = ValidatorsData {
+            mainValidatorAddress: msg.mainValidator,
+            maxTonPerValidator: msg.maxTonPerValidator,
+            minTonPerValidator: msg.minTonPerValidator,
+            curRound: RoundData { roundIndex: 0 }.toCell(),
+            prevRound: RoundData { roundIndex: 0 }.toCell(),
+            vsetHash: getCurVset().vsetHash >> 128,
+            mainValidatorData: mainValidator.toCell(),
+            maxRefundAmount: msg.maxRefund,
+        };
+        validatorsData.assertStakingLimit(msg.minTonPerValidator, msg.maxTonPerValidator);
         val newStorage = Storage {
             owner: storage.owner,
             poolId: storage.poolId,
             ownerShare: msg.ownerShare,
-            validators: ValidatorsData {
-                mainValidatorAddress: msg.mainValidator,
-                maxTonPerValidator: msg.maxTonPerValidator,
-                minTonPerValidator: msg.minTonPerValidator,
-                curRound: RoundData { roundIndex: 0 }.toCell(),
-                prevRound: RoundData { roundIndex: 0 }.toCell(),
-                vsetHash: getCurVset().vsetHash >> 128,
-                mainValidatorData: mainValidator.toCell(),
-                maxRefundAmount: msg.maxRefund,
-            }.toCell(),
+            validators: validatorsData.toCell(),
             maxNominators: nmSettings.maxNominators,
             nominators: NominatorsData {
                 minStake: nmSettings.minStake,

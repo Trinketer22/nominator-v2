@@ -9,6 +9,7 @@ import "@tests/elector-utils"
 import "@wrappers/Pool.gen"
 
 fun setupDeployedPool(): (Pool, Treasury, Treasury, address) {
+    setupSimplifiedElections();
     val deployer = testing.treasury("deployer");
     val notDeployer = testing.treasury("notDeployer");
     val mainValidator = randomAddress("validator", MASTERCHAIN);
@@ -96,6 +97,7 @@ fun deployPoolWith(owner: address, poolId: int, value: int, msg: InitPoolMessage
 }
 
 fun setupDeployTest(): (Pool, Treasury, Treasury, address) {
+    setupSimplifiedElections();
     val deployer = testing.treasury("deployer");
     val notDeployer = testing.treasury("notDeployer");
     val mainValidator = randomAddress("validator", MASTERCHAIN);

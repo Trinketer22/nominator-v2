@@ -1,14 +1,17 @@
 import "@stdlib/reflection"
+import "@acton/emulation/config"
 import "@acton/emulation/network"
 import "@acton/emulation/testing"
 import "@acton/testing/expect"
 import "@acton/testing/fuzz"
 
+import "@contracts/config"
 import "@contracts/errors"
 import "@contracts/fees"
 import "@contracts/messages"
 import "@contracts/messages"
 import "@contracts/types"
+import "@tests/elector-utils"
 import "@wrappers/Pool.gen"
 import "deploy-utils"
 import "proxy-utils.tolk"
@@ -23,7 +26,18 @@ get fun `test should deploy with specified parameters`(
     ownerShare: int,
     maxNominators: int,
 ) {
-    fuzz.assume(minTon < maxTon);
+    val networkLimits = StakingLimits.fromCell(testing.getConfig().getParamRaw(STAKES_IDX));
+    val boundMax = fuzz.bound(
+        maxTon,
+        networkLimits.minStake + 1,
+        networkLimits.maxStake,
+    );
+    val boundMin = fuzz.bound(
+        minTon,
+        networkLimits.minStake,
+        networkLimits.maxStake - 1,
+    );
+    fuzz.assume(boundMin < boundMax);
 
     val (pool, deployer, _notOwnerr, validator) = setupDeployTest();
 
@@ -38,8 +52,8 @@ get fun `test should deploy with specified parameters`(
         body: InitPoolMessage {
             queryId: 0,
             ownerShare: boundedShare,
-            maxTonPerValidator: maxTon,
-            minTonPerValidator: minTon,
+            maxTonPerValidator: boundMax,
+            minTonPerValidator: boundMin,
             mainValidator: validator,
             limit: null,
             maxRefund: refund,
@@ -78,8 +92,8 @@ get fun `test should deploy with specified parameters`(
     val validatorsAfter = poolAfter.validators.load();
     expect(validatorsAfter.mainValidatorAddress).toEqual(validator);
 
-    expect(validatorsAfter.maxTonPerValidator).toEqual(maxTon);
-    expect(validatorsAfter.minTonPerValidator).toEqual(minTon);
+    expect(validatorsAfter.maxTonPerValidator).toEqual(boundMax);
+    expect(validatorsAfter.minTonPerValidator).toEqual(boundMin);
     expect(validatorsAfter.maxRefundAmount).toEqual(refund);
 
     val nominatorsAfter = poolAfter.nominators.load();
@@ -169,7 +183,7 @@ get fun `test should not allow to init pool with maxTonPerValidator < minTonPerV
         createMessage({
             bounce: false,
             dest: { stateInit: pool.stateInit! },
-            value: ton("100"),
+            value: ton("250"),
             body: deployMsg,
         }),
     );
@@ -177,6 +191,81 @@ get fun `test should not allow to init pool with maxTonPerValidator < minTonPerV
         to: pool.address,
         exitCode: ErrorsPool.InvalidMaxMin,
     });
+}
+
+get fun `test should not allow to init pool with minTonPerValidator < network minimal`() {
+    val (pool, owner, _notOwner, _validator) = setupDeployTest();
+    val networkLimits = StakingLimits.fromCell(testing.getConfig().getParamRaw(STAKES_IDX));
+    var deployMsg = defaultDeployBody();
+    deployMsg.maxTonPerValidator = networkLimits.maxStake;
+    deployMsg.minTonPerValidator = networkLimits.minStake - 1;
+
+    var res = net.send(
+        owner.address,
+        createMessage({
+            bounce: false,
+            dest: { stateInit: pool.stateInit! },
+            value: ton("250"),
+            body: deployMsg,
+        }),
+    );
+    expect(res).toHaveFailedTx({
+        to: pool.address,
+        exitCode: ErrorsPool.MinStakeBelowNetworkLimit,
+    });
+
+    deployMsg.minTonPerValidator = networkLimits.minStake;
+    res = net.send(
+        owner.address,
+        createMessage({
+            bounce: false,
+            dest: { stateInit: pool.stateInit! },
+            value: ton("250"),
+            body: deployMsg,
+        }),
+    );
+    expect(res).toHaveSuccessfulTx<InitPoolMessage>({
+        to: pool.address,
+    });
+    expect(pool.getLimitsPerValidator().0).toEqual(networkLimits.minStake);
+}
+
+get fun `test should not allow to init pool with maxTonPerValidator > network max`() {
+    val (pool, owner, _notOwner, _validator) = setupDeployTest();
+    val networkLimits = StakingLimits.fromCell(testing.getConfig().getParamRaw(STAKES_IDX));
+    var deployMsg = defaultDeployBody();
+    deployMsg.maxTonPerValidator = networkLimits.maxStake + 1;
+    deployMsg.minTonPerValidator = networkLimits.minStake;
+
+    var res = net.send(
+        owner.address,
+        createMessage({
+            bounce: false,
+            dest: { stateInit: pool.stateInit! },
+            value: ton("250"),
+            body: deployMsg,
+        }),
+    );
+    expect(res).toHaveFailedTx({
+        to: pool.address,
+        exitCode: ErrorsPool.MaxStakeAboveNetworkLimit,
+    });
+
+    deployMsg.maxTonPerValidator -= 1;
+    res = net.send(
+        owner.address,
+        createMessage({
+            bounce: false,
+            dest: { stateInit: pool.stateInit! },
+            value: ton("250"),
+            body: deployMsg,
+        }),
+    );
+    expect(res).toHaveSuccessfulTx<InitPoolMessage>({
+        to: pool.address,
+    });
+
+    expect(pool.getLimitsPerValidator().1).toEqual(networkLimits.maxStake);
 }
 
 get fun `test should not allow to init the pool twice`() {

@@ -1,3 +1,4 @@
+import "@contracts/config"
 import "@contracts/utils"
 import "@gen/Proxy.code"
 import "errors"
@@ -20,7 +21,10 @@ fun ValidatorsData.assertValidatorLimit(self, limit: ValidatorLimit) {
 }
 
 fun ValidatorsData.assertStakingLimit(self, minTonPerValidator: coins, maxTonPerValidator: coins) {
+    val networkLimits = lazy StakingLimits.load();
     assert(maxTonPerValidator > minTonPerValidator, ErrorsPool.InvalidMaxMin);
+    assert(minTonPerValidator >= networkLimits.minStake, ErrorsPool.MinStakeBelowNetworkLimit);
+    assert(maxTonPerValidator <= networkLimits.maxStake, ErrorsPool.MaxStakeAboveNetworkLimit);
 }
 
 fun ValidatorsData.coverUsageByAddress(
