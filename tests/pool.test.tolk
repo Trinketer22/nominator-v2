@@ -1065,6 +1065,31 @@ get fun `test nominator with both pending withdrawals and pending depo, should e
     expect(rawNms.pendingWithdrawals).toBeNull();
 }
 
+get fun `test that if any stakes used in prev round, deposit should become pending`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
+
+    val testNm = testing.treasury("testNominator");
+    val depoValue = random.range(ton("20000")) + ton("10000");
+
+    // No previous usage, so depo should be instant
+    assertPoolDepositInstant(pool, testNm.address, depoValue);
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+
+    val poolBefore = pool.getPoolData();
+    expect(poolBefore.roundClosed).toBeFalse();
+
+    assertDelayedOperation(pool, testNm.address, false, depoValue);
+}
+
 get fun `test that pending operations can only be claimed once`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);

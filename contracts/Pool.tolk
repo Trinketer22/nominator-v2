@@ -58,7 +58,12 @@ fun handleTextComment(comment: slice, sender: address, value: coins) {
             assert(nominators.nmCount < storage.maxNominators, ErrorsPool.TooManyNominators);
             val incommingValue = value - DEPOSIT_GAS; // calculateGasFee(BASECHAIN, DEPOSIT_GAS);
             assert(incommingValue >= nominators.minStake, ErrorsPool.NotEnoughGas);
-            if (storage.roundClosed) {
+            val validators = lazy storage.validators.load();
+            val prevRound = lazy validators.prevRound.load();
+
+            val hasPrevUsage = !prevRound.users.isEmpty();
+
+            if (storage.roundClosed || hasPrevUsage) {
                 var pendingDeposits = nominators.pendingDeposits == null
                     ? PendingOps { isWithdraw: false }
                     : nominators.pendingDeposits.load();
