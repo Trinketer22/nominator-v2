@@ -1087,14 +1087,21 @@ get fun `test anybody should be able to recover on behalf of the validator at un
     val validatorInfo = pool.getValidatorInfo(validator);
     val expectedProxy = validatorInfo.validator.evenProxy!;
 
-    expect(res).toHaveSuccessfulTx({ from: pool.address, to: address.fromWorkchainAndHash(
+    expect(res).toHaveSuccessfulTx({
+        from: pool.address,
+        to: address.fromWorkchainAndHash(
             MASTERCHAIN,
             expectedProxy,
-        ), value: testValue });
-    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ from: address.fromWorkchainAndHash(
+        ),
+        value: testValue,
+    });
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({
+        from: address.fromWorkchainAndHash(
             MASTERCHAIN,
             expectedProxy,
-        ), to: pool.address });
+        ),
+        to: pool.address,
+    });
 }
 
 get fun `test should unfreeze frozen proxy by recoverStake`() {
@@ -1270,7 +1277,7 @@ get fun `test RecoverStakeOk should not be accepted from arbitrary address`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
 
-    val attacker = testing.treasury("attacker");
+    val attacker = address.fromWorkchainAndHash(MASTERCHAIN, random.uint256());
 
     runRound(
         pool,
@@ -1292,7 +1299,7 @@ get fun `test RecoverStakeOk should not be accepted from arbitrary address`() {
     );
 
     var res = pool.sendRecoverStakeOk(
-        attacker.address,
+        attacker,
         DEFAULT_QUERY_ID,
         ProxyResponseData {
             validator,
@@ -1303,12 +1310,12 @@ get fun `test RecoverStakeOk should not be accepted from arbitrary address`() {
 
     expect(res).toHaveFailedTx({
         to: pool.address,
-        from: attacker.address,
+        from: attacker,
         exitCode: ErrorsPool.NotFromProxy,
     });
 
     res = pool.sendRecoverStakeOk(
-        attacker.address,
+        attacker,
         DEFAULT_QUERY_ID,
         ProxyResponseData {
             validator,
@@ -1319,9 +1326,34 @@ get fun `test RecoverStakeOk should not be accepted from arbitrary address`() {
 
     expect(res).toHaveFailedTx({
         to: pool.address,
-        from: attacker.address,
+        from: attacker,
         exitCode: ErrorsPool.NotFromProxy,
     });
+
+    val valInfo = pool.getValidatorInfo(validator);
+
+    var proxyHashes = [valInfo.validator.evenProxy!, valInfo.validator.oddProxy!];
+    var tryCount = 2;
+    repeat (tryCount) {
+        val curHash = proxyHashes.pop();
+        val proxyBc = address.fromWorkchainAndHash(BASECHAIN, curHash);
+        res = pool.sendRecoverStakeOk(
+            proxyBc,
+            DEFAULT_QUERY_ID,
+            ProxyResponseData {
+                validator,
+                parity: tryCount % 2 > 0,
+            }.toCell()
+                .beginParse(),
+        );
+        tryCount -= 1;
+
+        expect(res).toHaveFailedTx({
+            to: pool.address,
+            from: proxyBc,
+            exitCode: ErrorsPool.NotFromProxy,
+        });
+    }
 }
 
 @test.skip
@@ -1373,6 +1405,75 @@ get fun `test that validator wallet is not burning balance while operating due t
     expect(balanceAfter).toBeGreaterOrEqual(balanceBefore);
 
     println(balanceBefore - balanceAfter);
+}
+
+get fun `test new stake error should not be accepted from arbitrary address`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    val attacker = address.fromWorkchainAndHash(MASTERCHAIN, random.uint256());
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+
+    var tryCount = 2;
+    val stateBefore = getAccountData(pool.address);
+    val balanceBefore = testing.getAccountBalance(pool.address);
+    repeat (tryCount) {
+        pool.sendNewStakeError(
+            attacker,
+            DEFAULT_QUERY_ID,
+            0,
+            ProxyResponseData {
+                validator,
+                parity: tryCount % 2 > 0,
+            }.toCell()
+                .beginParse(),
+        );
+        expect(getAccountData(pool.address).hash()).toEqual(stateBefore.hash());
+        tryCount -= 1;
+    }
+    tryCount = 2;
+
+    val valInfo = pool.getValidatorInfo(validator);
+
+    repeat (tryCount) {
+        var testAddress: address;
+        if (tryCount % 2 > 0) {
+            testAddress = address.fromWorkchainAndHash(BASECHAIN, valInfo.validator.oddProxy!);
+        } else {
+            testAddress = address.fromWorkchainAndHash(BASECHAIN, valInfo.validator.evenProxy!);
+        }
+        pool.sendNewStakeError(
+            testAddress,
+            DEFAULT_QUERY_ID,
+            0,
+            ProxyResponseData {
+                validator,
+                parity: tryCount % 2 > 0,
+            }.toCell()
+                .beginParse(),
+        );
+        expect(getAccountData(pool.address).hash()).toEqual(stateBefore.hash());
+        tryCount -= 1;
+    }
+    expect(testing.getAccountBalance(pool.address)).toBeGreaterOrEqual(balanceBefore);
 }
 
 get fun `test new stake error from elector should be handled appropriately`() {
