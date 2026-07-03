@@ -1151,16 +1151,6 @@ get fun get_validator_info(address: address): GetValidatorInfo {
     var stakeNotAvailable = validator.data.isBanned || storage.roundClosed;
     stakeNotAvailable = stakeNotAvailable || ((roundMask & validator.data.usageState) > 0);
     stakeNotAvailable = stakeNotAvailable || ((roundMask & validator.data.roundParity as int) == 0);
-    // Maybe excessive?
-    if (!stakeNotAvailable) {
-        val curVset = getCurVset();
-        val electionsConf = getElectionsTiming();
-        val curTime = blockchain.now();
-        stakeNotAvailable = stakeNotAvailable ||
-        curTime <= curVset.utimeUntil - electionsConf.startBefore;
-        stakeNotAvailable = stakeNotAvailable ||
-        curTime >= curVset.utimeUntil - electionsConf.endBefore;
-    }
 
     var stakeable: coins;
     if (stakeNotAvailable) {

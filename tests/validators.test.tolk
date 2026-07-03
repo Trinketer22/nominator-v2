@@ -315,7 +315,6 @@ get fun `test should not allow to stake before the elections started`() {
     config.setParamRaw(CUR_VSET_IDX, currentVset.toCell());
     testing.setConfig(config);
 
-    expect(pool.getValidatorInfo(validator).stakeable).toEqual(0);
     assertNewStakeFailed(
         ErrorsPool.ElectionsNotStarted,
         validator,
@@ -341,7 +340,6 @@ get fun `test should not allow to stake after the elections ended`() {
     config.setParamRaw(CUR_VSET_IDX, currentVset.toCell());
     testing.setConfig(config);
 
-    expect(pool.getValidatorInfo(validator).stakeable).toEqual(0);
     assertNewStakeFailed(
         ErrorsPool.ElectionsAlreadyEnded,
         validator,
