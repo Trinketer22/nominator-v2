@@ -40,7 +40,7 @@ fun ValidatorsData.coverUsageByAddress(
     val (wc, addrHash) = address.getWorkchainAndHash();
     // Do nothing for basechain addresses
     // Bit of a hack, but it's okay?
-    if(wc == BASECHAIN) {
+    if (wc == BASECHAIN) {
         return (null, round.roundIndex, round.users.isEmpty());
     }
     var lookup = round.coverUsage(addrHash, amount);
@@ -306,7 +306,7 @@ fun Validator.deployProxy(
             assert(budget > 0, ErrorsPool.NotEnoughGas);
             val parity = bitPosition % 2 > 0;
             val proxyState = getProxyState(address, parity);
-            val proxyAddrHash= proxyState.calculateAddress().getHash();
+            val proxyAddrHash = proxyState.calculateAddress().getHash();
             if (parity) {
                 self.oddProxy = proxyAddrHash;
             } else {
@@ -369,7 +369,7 @@ fun getCurVset(): CurrentVset {
     };
 }
 
-fun Validator.getProxyByParity(self, bitIdx: int): uint256{
+fun Validator.getProxyByParity(self, bitIdx: int): uint256 {
     if ((bitIdx & 1) == 0) {
         return self.evenProxy!;
     }

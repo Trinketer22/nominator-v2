@@ -1087,8 +1087,14 @@ get fun `test anybody should be able to recover on behalf of the validator at un
     val validatorInfo = pool.getValidatorInfo(validator);
     val expectedProxy = validatorInfo.validator.evenProxy!;
 
-    expect(res).toHaveSuccessfulTx({ from: pool.address, to: address.fromWorkchainAndHash(MASTERCHAIN, expectedProxy), value: testValue });
-    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ from: address.fromWorkchainAndHash(MASTERCHAIN, expectedProxy), to: pool.address });
+    expect(res).toHaveSuccessfulTx({ from: pool.address, to: address.fromWorkchainAndHash(
+            MASTERCHAIN,
+            expectedProxy,
+        ), value: testValue });
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ from: address.fromWorkchainAndHash(
+            MASTERCHAIN,
+            expectedProxy,
+        ), to: pool.address });
 }
 
 get fun `test should unfreeze frozen proxy by recoverStake`() {

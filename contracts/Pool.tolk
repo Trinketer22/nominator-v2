@@ -301,14 +301,18 @@ fun handleNewStakeError(sender: address, value: int) {
     var storage = lazy Storage.load();
     var validators = lazy storage.validators.load();
     val (workchain, addrHash) = sender.getWorkchainAndHash();
-    assert (workchain == MASTERCHAIN, ErrorsPool.NotFromProxy);
+    assert(workchain == MASTERCHAIN, ErrorsPool.NotFromProxy);
 
     // var curRound = validators.curRound.load();
     val _returnedVal = value - ton("1");
 
     // 1 ton we're guaranteed to have for each NewStake
     // var (stakeReturned, roundIdx,_roundDone) = validators.coverUsageByAddress(sender, returnedVal, true, ton("1"));
-    val stakeReturned = validators.getUsageRecord(addrHash, RoundAllowance.InAllRounds as int, null);
+    val stakeReturned = validators.getUsageRecord(
+        addrHash,
+        RoundAllowance.InAllRounds as int,
+        null,
+    );
 
     // If return didn't have an effect on state, we can simply ignore
     if (stakeReturned != null) {
@@ -765,7 +769,9 @@ fun onInternalMessage(in: InMessage) {
                 // Single nominator mode TODO
                 proxyAddressHash = proxyState.calculateAddress().getHash();
                 val round = affectedRound.load();
-                val usageRec = round.users.mustGet(proxyAddressHash, ErrorsPool.UsageRecordNotFound);
+                val usageRec = round
+                    .users
+                    .mustGet(proxyAddressHash, ErrorsPool.UsageRecordNotFound);
                 usageRec.rotation.checkRecoverRequirements(usageRec.heldFor);
                 //}
 
