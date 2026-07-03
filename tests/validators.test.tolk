@@ -606,7 +606,7 @@ get fun `test validator should be able to recover stake and rotate round`() {
     val poolAfter = pool.getPoolData();
     // println(res);
     var recoverTx = res.findTransaction({
-        from: expectedProxy,
+        from: address.fromWorkchainAndHash(MASTERCHAIN, expectedProxy),
         to: pool.address,
         opcode: opcode<RecoverStakeOk>(),
     });
@@ -674,7 +674,7 @@ get fun `test validator should be able to recover stake and rotate round`() {
     val secondRecovery = waitAndRecoverStake(pool, validator, elector.address);
     // val secondRecovery = pool.sendRecoverStakeCompat(validator, DEFAULT_QUERY_ID, {value: ton("1")});
     recoverTx = secondRecovery.findTransaction({
-        from: prevRound.proxy,
+        from: address.fromWorkchainAndHash(MASTERCHAIN, prevRound.proxy),
         to: pool.address,
         opcode: opcode<RecoverStakeOk>(),
     });
@@ -1089,8 +1089,8 @@ get fun `test anybody should be able to recover on behalf of the validator at un
     val validatorInfo = pool.getValidatorInfo(validator);
     val expectedProxy = validatorInfo.validator.evenProxy!;
 
-    expect(res).toHaveSuccessfulTx({ from: pool.address, to: expectedProxy, value: testValue });
-    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ from: expectedProxy, to: pool.address });
+    expect(res).toHaveSuccessfulTx({ from: pool.address, to: address.fromWorkchainAndHash(MASTERCHAIN, expectedProxy), value: testValue });
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ from: address.fromWorkchainAndHash(MASTERCHAIN, expectedProxy), to: pool.address });
 }
 
 get fun `test should unfreeze frozen proxy by recoverStake`() {
@@ -1133,12 +1133,13 @@ get fun `test should unfreeze frozen proxy by recoverStake`() {
         .hash();
 
     val frozenProxy = TlbAccountStateFrozen { stateHash: proxyAcctHash };
+    val expectedProxyAddress = address.fromWorkchainAndHash(MASTERCHAIN, expectedProxy);
 
     testing.setShardAccount(
-        expectedProxy,
+        expectedProxyAddress,
         TlbShardAccount {
             account: (TlbAccountInfo {
-                addr: expectedProxy,
+                addr: expectedProxyAddress,
                 storage: TlbAccountStorage {
                     lastTransLt: 0,
                     balance: TlbCurrencyCollection {
@@ -1174,10 +1175,10 @@ get fun `test should unfreeze frozen proxy by recoverStake`() {
         { value: ton("10") },
     );
 
-    val recoverTx = res.findTransaction({ from: pool.address, to: expectedProxy });
+    val recoverTx = res.findTransaction({ from: pool.address, to: expectedProxyAddress });
     expect(recoverTx).toNotEqual(null);
     expect(res).toHaveSuccessfulTx<RecoverStakeCompat>({ from: pool.address });
-    expect(res).toHaveSuccessfulTx({ from: elector.address, to: expectedProxy });
+    expect(res).toHaveSuccessfulTx({ from: elector.address, to: expectedProxyAddress });
 }
 
 get fun `test new stake should bounce from the frozen proxy`() {
@@ -1409,7 +1410,7 @@ get fun `test new stake error from elector should be handled appropriately`() {
     val roundAfter = validatorsAfter.curRound.load();
     expect(roundBefore.returned).toBeLess(roundBefore.used);
     expect(roundBefore.used).toEqual(roundAfter.used);
-    expect(roundAfter.users.exists(testValidator)).toBeFalse();
+    expect(roundAfter.users.exists(testValidator.getWorkchainAndHash().1)).toBeFalse();
     // No losses on the books, it is absorbed by the validator refund amount
     expect(roundAfter.returned).toEqual(roundBefore.returned);
     // When stake is taken activeSlots increment
@@ -1484,7 +1485,7 @@ get fun `test new stake error from elector should be handled appropriately (FULL
     expect(roundAfter).toEqual(roundBefore);
     expect(roundBefore.returned).toEqual(roundAfter.returned);
     expect(roundBefore.used).toEqual(roundAfter.used);
-    expect(roundAfter.users.exists(randomValidator)).toBeFalse();
+    expect(roundAfter.users.exists(randomValidator.getWorkchainAndHash().1)).toBeFalse();
     // No losses on the books, it is absorbed by the validator refund amount
     // When stake is taken activeSlots increment
     // On NewStakeError it should decrement

@@ -577,7 +577,7 @@ get fun `test if pool received loss, nominators stake should decrease in price`(
     val expectedProxy = valInfo.usage.prevRoundUsage!.proxy;
 
     val res = net.send(
-        expectedProxy,
+        address.fromWorkchainAndHash(MASTERCHAIN, expectedProxy),
         createMessage({
             bounce: false,
             dest: pool.address,

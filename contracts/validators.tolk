@@ -37,7 +37,13 @@ fun ValidatorsData.coverUsageByAddress(
         ? (self.curRound, self.prevRound)
         : (self.prevRound, self.curRound);
     var round = firstRound.load();
-    var lookup = round.coverUsage(address, amount);
+    val (wc, addrHash) = address.getWorkchainAndHash();
+    // Do nothing for basechain addresses
+    // Bit of a hack, but it's okay?
+    if(wc == BASECHAIN) {
+        return (null, round.roundIndex, round.users.isEmpty());
+    }
+    var lookup = round.coverUsage(addrHash, amount);
 
     if (lookup != null) {
         val roundCell = round.toCell();
@@ -50,7 +56,7 @@ fun ValidatorsData.coverUsageByAddress(
     }
 
     round = nextRound.load();
-    lookup = round.coverUsage(address, amount);
+    lookup = round.coverUsage(addrHash, amount);
 
     if (lookup != null) {
         val roundCell = round.toCell();
@@ -98,14 +104,14 @@ fun ValidatorsData.updateValidatorByAddress(
 
 fun ValidatorsData.getUsageRecord(
     self,
-    address: address,
+    addrHash: uint256,
     usageMask: uint2,
     throwIfNotFound: int?,
 ): UsageLookup? {
     var round = self.prevRound.load();
     var bitIdx = toBitIndex(round.roundIndex);
     if ((usageMask & bitIdx) != 0) {
-        var lookup = round.users.get(address);
+        var lookup = round.users.get(addrHash);
         if (lookup.isFound) {
             return {
                 isCurrentRound: false,
@@ -118,7 +124,7 @@ fun ValidatorsData.getUsageRecord(
     bitIdx = toBitIndex(round.roundIndex);
 
     if ((usageMask & bitIdx) != 0) {
-        val lookup = round.users.get(address);
+        val lookup = round.users.get(addrHash);
         if (lookup.isFound) {
             return {
                 isCurrentRound: true,
@@ -262,20 +268,20 @@ fun RotationData.checkRecoverRequirements(self, heldFor: int) {
     (blockchain.now() - self.rotationTime > heldFor + 60), ErrorsPool.RecoveryTimeTooEarly);
 }
 
-fun RoundData.rotateRoundRecords(mutate self, address: address, curVset: int): bool {
-    val usageLookup = self.users.get(address);
+fun RoundData.rotateRoundRecords(mutate self, proxyHash: uint256, curVset: int): bool {
+    val usageLookup = self.users.get(proxyHash);
     if (usageLookup.isFound) {
         var usageData = usageLookup.loadValue();
         if (usageData.rotation.rotateVset(curVset)) {
-            self.users.set(address, usageData);
+            self.users.set(proxyHash, usageData);
             return true;
         }
     }
     return false;
 }
 
-fun RoundData.coverUsage(mutate self, address: address, amount: int): TonUsage? {
-    val lookup = self.users.deleteAndGetDeleted(address);
+fun RoundData.coverUsage(mutate self, addressHash: uint256, amount: int): TonUsage? {
+    val lookup = self.users.deleteAndGetDeleted(addressHash);
     if (lookup.isFound) {
         self.returned += amount;
         return lookup.loadValue();
@@ -300,10 +306,11 @@ fun Validator.deployProxy(
             assert(budget > 0, ErrorsPool.NotEnoughGas);
             val parity = bitPosition % 2 > 0;
             val proxyState = getProxyState(address, parity);
+            val proxyAddrHash= proxyState.calculateAddress().getHash();
             if (parity) {
-                self.oddProxy = proxyState.calculateAddress();
+                self.oddProxy = proxyAddrHash;
             } else {
-                self.evenProxy = proxyState.calculateAddress();
+                self.evenProxy = proxyAddrHash;
             }
 
             createMessage({
@@ -362,11 +369,15 @@ fun getCurVset(): CurrentVset {
     };
 }
 
-fun Validator.getProxyByParity(self, bitIdx: int): address {
+fun Validator.getProxyByParity(self, bitIdx: int): uint256{
     if ((bitIdx & 1) == 0) {
         return self.evenProxy!;
     }
     return self.oddProxy!;
+}
+
+fun Validator.getProxyAddressByParity(self, bitIdx: int): address {
+    return address.fromWorkchainAndHash(MASTERCHAIN, self.getProxyByParity(bitIdx));
 }
 
 fun Validator.allUsageRecords(
@@ -379,18 +390,18 @@ fun Validator.allUsageRecords(
     var prevUsage: ValidatorUsageStats? = null;
 
     if ((bitIdx & self.usageState) != 0) {
-        val proxyAddr = self.getProxyByParity(bitIdx);
+        val proxyAddrHash = self.getProxyByParity(bitIdx);
         curUsage = ValidatorUsageStats {
-            proxy: proxyAddr,
-            usage: curRound.users.mustGet(proxyAddr, ErrorsPool.UsageRecordNotFound)!,
+            proxy: proxyAddrHash,
+            usage: curRound.users.mustGet(proxyAddrHash, ErrorsPool.UsageRecordNotFound)!,
         };
     }
     bitIdx = (bitIdx << 1) % 3;
     if ((bitIdx & self.usageState) != 0) {
-        val proxyAddr = self.getProxyByParity(bitIdx);
+        val proxyAddrHash = self.getProxyByParity(bitIdx);
         prevUsage = ValidatorUsageStats {
-            proxy: proxyAddr,
-            usage: prevRound.users.mustGet(proxyAddr, ErrorsPool.UsageRecordNotFound)!,
+            proxy: proxyAddrHash,
+            usage: prevRound.users.mustGet(proxyAddrHash, ErrorsPool.UsageRecordNotFound)!,
         };
     }
 

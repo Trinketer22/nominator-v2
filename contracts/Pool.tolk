@@ -300,19 +300,21 @@ get fun get_max_punishment(stake: int): int {
 fun handleNewStakeError(sender: address, value: int) {
     var storage = lazy Storage.load();
     var validators = lazy storage.validators.load();
+    val (workchain, addrHash) = sender.getWorkchainAndHash();
+    assert (workchain == MASTERCHAIN, ErrorsPool.NotFromProxy);
 
     // var curRound = validators.curRound.load();
     val _returnedVal = value - ton("1");
 
     // 1 ton we're guaranteed to have for each NewStake
     // var (stakeReturned, roundIdx,_roundDone) = validators.coverUsageByAddress(sender, returnedVal, true, ton("1"));
-    val stakeReturned = validators.getUsageRecord(sender, 3, null);
+    val stakeReturned = validators.getUsageRecord(addrHash, RoundAllowance.InAllRounds as int, null);
 
-    // If return didn't have an affect on state, we can simply ignore
+    // If return didn't have an effect on state, we can simply ignore
     if (stakeReturned != null) {
         var round = stakeReturned.round;
         val delta = abs(stakeReturned.data.tonUsed - value);
-        round.users.delete(sender);
+        round.users.delete(addrHash);
         if (delta <= ton("1")) {
             // If delta is withing newStake reserve
             // make it look like it never happen
@@ -657,11 +659,11 @@ fun onInternalMessage(in: InMessage) {
                 var curRound = validators.curRound.load();
                 validators.stakeUsed += stakeAmountSent;
                 curRound.used += stakeAmountSent;
-                val proxyAddress = valData.data.getProxyByParity(roundIndex);
+                val proxyAddress = valData.data.getProxyAddressByParity(roundIndex);
                 curRound
                     .users
                     .set(
-                        proxyAddress,
+                        proxyAddress.getHash(),
                         {
                             validator: in.senderAddress,
                             heldFor: electionsConf.stakeHeldFor,
@@ -740,7 +742,7 @@ fun onInternalMessage(in: InMessage) {
                 assert(usageState > 0, ErrorsPool.UsageRecordNotFound);
                 val actionableValue = min(in.valueCoins, MAX_RECOVERY_VALUE);
                 validatorData.data.refundAmount += actionableValue;
-                var proxyAddress: address;
+                var proxyAddressHash: uint256;
 
                 // Idea to use proxy address from state
                 // is to attach state init and potentially
@@ -761,9 +763,9 @@ fun onInternalMessage(in: InMessage) {
 
                 //if(storage.maxNominators > 0) {
                 // Single nominator mode TODO
-                proxyAddress = proxyState.calculateAddress();
+                proxyAddressHash = proxyState.calculateAddress().getHash();
                 val round = affectedRound.load();
-                val usageRec = round.users.mustGet(proxyAddress, ErrorsPool.UsageRecordNotFound);
+                val usageRec = round.users.mustGet(proxyAddressHash, ErrorsPool.UsageRecordNotFound);
                 usageRec.rotation.checkRecoverRequirements(usageRec.heldFor);
                 //}
 
@@ -819,7 +821,7 @@ fun onInternalMessage(in: InMessage) {
 
             val proxyState = getProxyState(msg.validator, roundBitIdx % 2 > 0);
             val usageRec = validators.getUsageRecord(
-                proxyState.calculateAddress(),
+                proxyState.calculateAddress().getHash(),
                 valData.data.usageState,
                 ErrorsPool.UsageRecordNotFound,
             )!;

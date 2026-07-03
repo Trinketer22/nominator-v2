@@ -187,7 +187,7 @@ fun assertPoolNewStake(
     elector: ElectorCode,
     elections: int,
     stake: coins,
-): (RoundData, TonUsage, address) {
+): (RoundData, TonUsage, uint256) {
     val poolBefore = pool.getPoolData();
 
     val signedBody = getSignedBody(elections);
@@ -229,7 +229,7 @@ fun assertPoolNewStake(
 
     expect(curRound.used).toEqual(curRoundBefore.used + stake - ton("1"));
     expect(curRound.returned).toEqual(curRoundBefore.returned);
-    val curStake = curRound.users.get(expectedProxy.address);
+    val curStake = curRound.users.get(expectedProxy.address.getHash());
     expect(curStake.isFound).toBeTrue();
     val stakeData = curStake.loadValue();
     expect(stakeData.tonUsed).toEqual(stake - ton("1"));
@@ -240,7 +240,7 @@ fun assertPoolNewStake(
     expect(stakeData.rotation.rotationCount).toEqual(0);
     expect(stakeData.rotation.rotationTime).toEqual(testing.getNow());
 
-    return (curRound, curStake.loadValue(), expectedProxy.address);
+    return (curRound, curStake.loadValue(), expectedProxy.address.getHash());
 }
 
 fun assertNewStakeFailed(

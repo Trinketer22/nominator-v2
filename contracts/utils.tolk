@@ -60,3 +60,7 @@ fun getMaxPunishmentInt(stake: int): int {
 
     return min(stake, fine + mulDivFloor(stake, finePart, 1 << 32));
 }
+
+fun address.getHash(self) {
+    return self.getWorkchainAndHash().1;
+}

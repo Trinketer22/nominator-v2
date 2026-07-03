@@ -39,7 +39,7 @@ struct RoundData {
     used: coins = 0
     returned: coins = 0
     roundIndex: uint64
-    users: map<address, TonUsage> = []
+    users: map<uint256, TonUsage> = []
 }
 
 struct (0x12) CurrentVsetParsed {
@@ -110,8 +110,8 @@ struct RotationData {
 struct Validator {
     isBanned: bool = false
     usageState: uint2
-    evenProxy: address? = null
-    oddProxy: address? = null
+    evenProxy: uint256? = null
+    oddProxy: uint256? = null
     limit: ValidatorLimit? = null
     refundAmount: coins
     roundParity: RoundAllowance = RoundAllowance.InAllRounds
@@ -177,7 +177,7 @@ struct GetValidatorInfo {
 }
 
 struct ValidatorUsageStats {
-    proxy: address
+    proxy: uint256
     usage: TonUsage
 }
 

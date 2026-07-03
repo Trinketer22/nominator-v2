@@ -41,7 +41,7 @@ fun Expectation<RoundData>.toRotate(self, params: RotationParams) {
         },
         workchain: MASTERCHAIN,
     }.calculateAddress();
-    val lookup = self.value.users.get(proxyAddress);
+    val lookup = self.value.users.get(proxyAddress.getWorkchainAndHash().1);
     if (!lookup.isFound) {
         Assert.fail(
             format("Validator {} not found at {}", params.address, self.value.users),
