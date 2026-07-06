@@ -520,58 +520,15 @@ fun onInternalMessage(in: InMessage) {
         // Just accept funds
         AddFunds => {}
         UpdateLimits => {
-            try {
-                var validators = lazy storage.validators.load();
-                assert(in.senderAddress == storage.owner, ErrorsPool.NotOwner);
-
-                match (msg.limit) {
-                    GlobalValidatorsLimit => {
-                        validators.assertStakingLimit(
-                            msg.limit.minTonPerValidator,
-                            msg.limit.maxTonPerValidator,
-                        );
-                        validators.minTonPerValidator = msg.limit.minTonPerValidator;
-                        validators.maxTonPerValidator = msg.limit.maxTonPerValidator;
-                        validators.maxRefundAmount = msg.limit.maxRefund;
-                    }
-                    ValidatorSpecific => {
-                        var validatorData = validators.getValidatorByAddress(
-                            msg.limit.validator,
-                            ErrorsPool.ValidatorNotFound,
-                        )!;
-                        validators.assertValidatorLimit(msg.limit.limit);
-                        validatorData.data.limit = msg.limit.limit;
-                        validators.updateValidatorByAddress(msg.limit.validator, validatorData);
-                    }
-                    GlobalNominatorsLimit => {
-                        var nominators = lazy storage.nominators.load();
-                        storage.maxNominators = msg.limit.maxNm;
-                        nominators.minStake = msg.limit.minStake;
-                        storage.nominators = nominators.toCell();
-                    }
-                }
-                storage.validators = validators.toCell();
-                storage.save();
-                refundError(
-                    in.senderAddress,
-                    {
-                        op: opcode<UpdateLimits>(),
-                        errorCode: 0,
-                        queryId: msg.queryId,
-                    },
-                    SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE | SEND_MODE_IGNORE_ERRORS,
-                );
-            } catch (e) {
-                refundError(
-                    in.senderAddress,
-                    {
-                        op: opcode<UpdateLimits>(),
-                        errorCode: e,
-                        queryId: msg.queryId,
-                    },
-                    SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE | SEND_MODE_IGNORE_ERRORS,
-                );
-            }
+            refundError(
+                in.senderAddress,
+                {
+                    op: opcode<UpdateLimits>(),
+                    queryId: msg.queryId,
+                    errorCode: ErrorsPool.NotOwner,
+                },
+                SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE,
+            );
         }
         UpdateNominatorsWhitelist => {
             refundError(

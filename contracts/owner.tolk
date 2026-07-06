@@ -10,7 +10,6 @@ type OwnerMessages =
     | AddValidator
     | UpdateLimits
     | UpdateNominatorsWhitelist
-    | AddValidator
     | RemoveValidator
     | OwnerWithdrawal
 
