@@ -22,6 +22,7 @@ enum ErrorsPool {
     NothingToDeposit
     RewardIsBelowMinimal
     DepositNotFound
+    DepositNotAllowed
     NotEnoughGas = 300
     TooManyNominators = 400
     TooManyValidators

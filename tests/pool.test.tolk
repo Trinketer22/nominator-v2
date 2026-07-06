@@ -1501,3 +1501,65 @@ get fun `test in closed round, deposit should become pending`() {
         prevItemAddr = testItem.address;
     }
 }
+
+get fun `test if whitelist is set, only nms on the list are allowed to depo`() {
+    var (share, validatorsSettings, nominatorsSettings) = defaultDeployParams();
+    val (elector, stakes, limits) = setupElector();
+    var whitelistNms: map<address, bool> = [];
+    repeat (5) {
+        val newAddr = address.fromWorkchainAndHash(BASECHAIN, random.uint256());
+        whitelistNms.set(newAddr, true);
+    }
+    nominatorsSettings.whitelist = whitelistNms;
+
+    nominatorsSettings.whitelist = whitelistNms;
+    val (pool, _owner, _notOwner, validator) = setupDeployedPool({
+        nominatorsSettings,
+    });
+
+    var testNm: address;
+    do {
+        testNm = address.fromWorkchainAndHash(BASECHAIN, random.uint256());
+    } while (whitelistNms.exists(testNm));
+
+    var stateBefore = getAccountData(pool.address);
+    var balanceBefore = testing.getAccountBalance(pool.address);
+    val testAmount = stakes.minStake * 5;
+    var depoReject = pool.sendTextComment(testNm, "d".beginParse(), { value: testAmount });
+
+    expect(depoReject).toHaveRefund<TextComment>({
+        to: testNm,
+        from: pool.address,
+        previousState: stateBefore,
+        initialBalance: balanceBefore,
+        error: ErrorsPool.DepositNotAllowed,
+    });
+
+    var lookup = whitelistNms.findFirst();
+    while (lookup.isFound) {
+        val testAddr = lookup.getKey();
+        assertPoolDepositInstant(pool, testAddr, testAmount);
+        lookup = whitelistNms.iterateNext(lookup);
+    }
+
+    // Now in pending mode
+    runRound(pool, elector, stakes, limits, validator);
+    stateBefore = getAccountData(pool.address);
+    balanceBefore = testing.getAccountBalance(pool.address);
+    depoReject = pool.sendTextComment(testNm, "d".beginParse(), { value: testAmount });
+
+    expect(depoReject).toHaveRefund<TextComment>({
+        to: testNm,
+        from: pool.address,
+        previousState: stateBefore,
+        initialBalance: balanceBefore,
+        error: ErrorsPool.DepositNotAllowed,
+    });
+
+    lookup = whitelistNms.findFirst();
+    while (lookup.isFound) {
+        val testAddr = lookup.getKey();
+        assertDelayedOperation(pool, testAddr, false, testAmount);
+        lookup = whitelistNms.iterateNext(lookup);
+    }
+}

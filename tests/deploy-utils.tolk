@@ -6,16 +6,21 @@ import "@acton/testing/expect"
 import "@contracts/messages"
 import "@contracts/types"
 import "@tests/elector-utils"
-import "@wrappers/Pool.gen"
 import "@tests/test-utils"
+import "@wrappers/Pool.gen"
 
 struct CustomDeployParameters {
-    share: uint25? = null,
+    share: uint25? = null
     validatorsSettings: ValidatorInitSettings? = null
     nominatorsSettings: NominatorsSettings? = null
 }
 
-fun setupDeployedPool(customSettings: CustomDeployParameters? = null): (Pool, Treasury, Treasury, address) {
+fun setupDeployedPool(customSettings: CustomDeployParameters? = null): (
+    Pool,
+    Treasury,
+    Treasury,
+    address,
+) {
     setupSimplifiedElections();
     val deployer = testing.treasury("deployer");
     val notDeployer = testing.treasury("notDeployer");
@@ -55,14 +60,14 @@ fun defaultDeployParams(): (int, ValidatorInitSettings, NominatorsSettings) {
 
 fun defaultDeployBody(params: CustomDeployParameters? = null): InitPoolMessage {
     var (share, validatorSettings, nmSettings) = defaultDeployParams();
-    if(params != null) {
-        if(params.share != null) {
+    if (params != null) {
+        if (params.share != null) {
             share = params.share;
         }
-        if(params.validatorsSettings != null) {
+        if (params.validatorsSettings != null) {
             validatorSettings = params.validatorsSettings;
         }
-        if(params.nominatorsSettings != null) {
+        if (params.nominatorsSettings != null) {
             nmSettings = params.nominatorsSettings;
         }
     }
@@ -90,7 +95,12 @@ fun getPoolStateInit(owner: address, poolId: int): AutoDeployAddress {
     return poolStateInit;
 }
 
-fun defaultDeployMessage(owner: address, poolId: int, value: int, deployBody: InitPoolMessage? = null): OutMessage {
+fun defaultDeployMessage(
+    owner: address,
+    poolId: int,
+    value: int,
+    deployBody: InitPoolMessage? = null,
+): OutMessage {
     val poolStateInit = getPoolStateInit(owner, poolId);
     return createMessage({
         bounce: false,

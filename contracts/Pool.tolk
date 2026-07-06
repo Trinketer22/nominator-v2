@@ -58,6 +58,9 @@ fun handleTextComment(comment: slice, sender: address, value: coins) {
             assert(nominators.nmCount < storage.maxNominators, ErrorsPool.TooManyNominators);
             val incommingValue = value - DEPOSIT_GAS; // calculateGasFee(BASECHAIN, DEPOSIT_GAS);
             assert(incommingValue >= nominators.minStake, ErrorsPool.NotEnoughGas);
+            if (!nominators.nominatorsWhitelist.isEmpty()) {
+                assert(nominators.nominatorsWhitelist.exists(sender), ErrorsPool.DepositNotAllowed);
+            }
             val validators = lazy storage.validators.load();
             val prevRound = lazy validators.prevRound.load();
 
@@ -420,6 +423,7 @@ fun onInternalMessage(in: InMessage) {
             nominators: NominatorsData {
                 minStake: nmSettings.minStake,
                 minWithdrawableReward: nmSettings.minWithdrawableRewards,
+                nominatorsWhitelist: nmSettings.whitelist,
             }.toCell(),
         };
 

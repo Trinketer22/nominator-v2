@@ -20,6 +20,7 @@ struct NominatorsSettings {
     maxNominators: uint10
     minStake: coins
     minWithdrawableRewards: coins
+    whitelist: map<address, bool> = []
 }
 
 struct ValidatorInitSettings {
@@ -161,6 +162,7 @@ struct NominatorsData {
     poolNominators: map<address, Nominator> = []
     pendingDeposits: Cell<PendingOps>? = null
     pendingWithdrawals: Cell<PendingOps>? = null
+    nominatorsWhitelist: map<address, bool> = []
 }
 
 struct TonUsage {
