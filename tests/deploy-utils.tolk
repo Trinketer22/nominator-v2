@@ -7,8 +7,15 @@ import "@contracts/messages"
 import "@contracts/types"
 import "@tests/elector-utils"
 import "@wrappers/Pool.gen"
+import "@tests/test-utils"
 
-fun setupDeployedPool(): (Pool, Treasury, Treasury, address) {
+struct CustomDeployParameters {
+    share: uint25? = null,
+    validatorsSettings: ValidatorInitSettings? = null
+    nominatorsSettings: NominatorsSettings? = null
+}
+
+fun setupDeployedPool(customSettings: CustomDeployParameters? = null): (Pool, Treasury, Treasury, address) {
     setupSimplifiedElections();
     val deployer = testing.treasury("deployer");
     val notDeployer = testing.treasury("notDeployer");
@@ -19,7 +26,8 @@ fun setupDeployedPool(): (Pool, Treasury, Treasury, address) {
         poolId: 42,
     });
 
-    val deployMsg = defaultDeployMessage(deployer.address, 42, ton("10000"));
+    val deployBody = defaultDeployBody(customSettings);
+    val deployMsg = defaultDeployMessage(deployer.address, 42, ton("10000"), deployBody);
 
     val res = net.send(deployer.address, deployMsg);
     expect(res).toHaveSuccessfulDeploy({ to: contract.address });
@@ -45,11 +53,22 @@ fun defaultDeployParams(): (int, ValidatorInitSettings, NominatorsSettings) {
     return (SHARE_BASE / 2, validatorSettings, nmSettings);
 }
 
-fun defaultDeployBody(): InitPoolMessage {
-    val (share, validatorSettings, nmSettings) = defaultDeployParams();
+fun defaultDeployBody(params: CustomDeployParameters? = null): InitPoolMessage {
+    var (share, validatorSettings, nmSettings) = defaultDeployParams();
+    if(params != null) {
+        if(params.share != null) {
+            share = params.share;
+        }
+        if(params.validatorsSettings != null) {
+            validatorSettings = params.validatorsSettings;
+        }
+        if(params.nominatorsSettings != null) {
+            nmSettings = params.nominatorsSettings;
+        }
+    }
 
     return InitPoolMessage {
-        queryId: 0,
+        queryId: DEFAULT_QUERY_ID,
         ownerShare: share,
         maxTonPerValidator: validatorSettings.maxTonPerValidator,
         minTonPerValidator: validatorSettings.minTonPerValidator,
@@ -71,13 +90,13 @@ fun getPoolStateInit(owner: address, poolId: int): AutoDeployAddress {
     return poolStateInit;
 }
 
-fun defaultDeployMessage(owner: address, poolId: int, value: int): OutMessage {
+fun defaultDeployMessage(owner: address, poolId: int, value: int, deployBody: InitPoolMessage? = null): OutMessage {
     val poolStateInit = getPoolStateInit(owner, poolId);
     return createMessage({
         bounce: false,
         dest: poolStateInit,
         value,
-        body: defaultDeployBody(),
+        body: deployBody == null ? defaultDeployBody() : deployBody,
     });
 }
 
