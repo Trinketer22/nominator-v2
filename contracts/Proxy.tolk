@@ -40,12 +40,12 @@ fun proxyMsg(dst: address, body: slice, mode: int, value: int, bouncable: bool) 
 }
 
 fun onBouncedMessage(in: InMessageBounced) {
-    val msg = lazy PoolMessagesBounceable.fromSlice(in.bouncedBody);
+    val msg = lazy PoolMessagesBounceable.fromSlice(in.bouncedBody.skipBouncedPrefix());
     val storage = ProxyStorage.fromCell(contract.getData());
     val resp = match (msg) {
         NewStake => createMessage({
             dest: storage.pool,
-            bounce: true,
+            bounce: false,
             value: 0,
             body: NewStakeError {
                 queryId: msg.queryId,
@@ -59,7 +59,7 @@ fun onBouncedMessage(in: InMessageBounced) {
         }),
         RecoverStakeCompat => createMessage({
             dest: storage.pool,
-            bounce: true,
+            bounce: false,
             value: 0,
             body: RecoverStakeError {
                 queryId: msg.queryId,

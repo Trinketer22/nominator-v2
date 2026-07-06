@@ -283,3 +283,47 @@ get fun `test low RecoverStakeOk uses proxy balance and sends minimum`() {
     val afterLowRecover = testing.getAccountBalance(proxy.address);
     expect(afterLowRecover).toBeLess(beforeLowRecover);
 }
+
+get fun `test bounced NewStake should be forwarded to pool as NewStakeError`() {
+    val (proxy, validator, _otherWallet, pool, electorAddr) = setupProxyTestContext();
+    val newStake = NewStake {
+        queryId: DEFAULT_QUERY_ID,
+        value: ton("100000"),
+        signedBody: "test".beginParse(),
+    };
+
+    val bouncedBody = beginCell()
+        .storeUint(0xFFFFFFFF, 32)
+        .storeSlice(newStake.toCell().beginParse());
+    val res = net.send(
+        electorAddr,
+        createMessage({
+            bounce: false,
+            value: ton("1"),
+            dest: proxy.address,
+            body: bouncedBody,
+        }).bounced(),
+    );
+
+    expect(res).toHaveTx<NewStakeError>({ from: proxy.address, to: pool.address });
+}
+
+get fun `test bounced RecoverStakeCompat should be forwarded to pool as RecoverStakeError`() {
+    val (proxy, _validator, _otherWallet, pool, electorAddr) = setupProxyTestContext();
+    val recoverStake = RecoverStakeCompat { queryId: DEFAULT_QUERY_ID };
+
+    val bouncedBody = beginCell()
+        .storeUint(0xFFFFFFFF, 32)
+        .storeSlice(recoverStake.toCell().beginParse());
+    val res = net.send(
+        electorAddr,
+        createMessage({
+            bounce: false,
+            value: ton("1"),
+            dest: proxy.address,
+            body: bouncedBody,
+        }).bounced(),
+    );
+
+    expect(res).toHaveTx<RecoverStakeError>({ from: proxy.address, to: pool.address });
+}
