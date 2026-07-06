@@ -13,10 +13,11 @@ A Tolk-based smart contract protocol for The Open Network (TON) that enables del
 5. [How Rounds Work](#how-rounds-work)
 6. [Validator Proxy](#validator-proxy)
 7. [Contract Interactions](#contract-interactions)
-7. [Fee Structure](#fee-structure)
-8. [Security Model](#security-model)
-9. [Known Limitations & Implementation Status](#known-limitations--implementation-status)
-10. [Build & Test](#build--test)
+8. [Fee Structure](#fee-structure)
+9. [Getters](#getters)
+10. [Security Model](#security-model)
+11. [Known Limitations & Implementation Status](#known-limitations--implementation-status)
+12. [Build & Test](#build--test)
 
 ---
 
@@ -103,16 +104,18 @@ If processing pending deposits/withdrawals exhausts available gas or balance in 
 | `maxNominators` | `uint10` | Maximum number of distinct nominator entries the pool will accept. If set to `0`, the contract operates in **owner-only mode** (nominator deposits are rejected). Note: fully relaxed single-nominator election timing (as in the original single-nominator pool contract) is not yet implemented; all validators are subject to the same round and election-window checks. |
 | `minStake` | `coins` | Minimum deposit amount accepted from a nominator. This is the true configurable economic gate; the contract also requires a small gas constant on top of this (see `DEPOSIT_GAS` in the fee table), but that constant is not itself a fee charged to the owner. |
 | `minWithdrawableRewards` | `coins` | Minimum profit a nominator must have accrued before a reward withdrawal (`"r"` comment) is accepted. |
+| `whitelist` | `map<address, bool>` | Optional nominator whitelist. If the map is non-empty, only addresses present in it are allowed to deposit. If empty, all addresses are accepted. Can be updated post-initialization via `UpdateNominatorsWhitelist`. |
 
 ### Global Limits (`UpdateLimits`)
 
-After initialization, the owner can adjust limits via the `UpdateLimits` message:
+After initialization, the owner can adjust limits via the `UpdateLimits` or `UpdateNominatorsWhitelist` messages:
 
 | Category | Fields | Description |
 |----------|--------|-------------|
-| **GlobalValidatorsLimit** | `minTonPerValidator`, `maxTonPerValidator`, `maxRefund` | Adjusts staking bounds for all validators and the refund cap. |
+| **GlobalValidatorsLimit** | `minTonPerValidator`, `maxTonPerValidator`, `maxRefund` | Adjusts staking bounds for all validators and the refund cap. These bounds are also validated against **network config 17** staking limits: `minTonPerValidator` must be ≥ `minStake` and `maxTonPerValidator` must be ≤ `maxStake` from network config. |
 | **ValidatorSpecific** | `validator`, `limit` | Sets an individual validator's `ValidatorLimit` (TON cap or share cap). |
 | **GlobalNominatorsLimit** | `minStake`, `maxNm` | Updates minimum nominator stake and the total nominator count ceiling. |
+| **NominatorsWhitelist** | `whitelist` | Replaces the current nominator whitelist map. A non-empty whitelist restricts deposits to the listed addresses only. An empty map clears the restriction and allows all addresses. |
 
 ---
 
@@ -125,7 +128,7 @@ After initialization, the owner can adjust limits via the `UpdateLimits` message
 
 ### Rounds and Rotation
 - `roundIndex` increments each time the validator set hash changes.
-- `curRound` and `prevRound` store usage records (maps of proxy address → `TonUsage`).
+- `curRound` and `prevRound` store usage records (maps of `proxy_hash → TonUsage`). The proxy hash is the 256-bit address hash (without workchain prefix), reducing storage footprint and simplifying lookup consistency between round data and validator data.
 - Validators can stake in the current round if the round is open, elections are active, and they have no prior usage in that round.
 - `RecoverStake` can only be called after enough time has passed (`rotationCount >= 2` or `now > rotationTime + heldFor + 60`).
 
@@ -168,7 +171,7 @@ Each `RoundData` contains:
 - `roundIndex`: sequential round identifier (`uint64`)
 - `used`: total TON used (staked) in this round
 - `returned`: total TON returned (recovered) in this round
-- `users`: a map of `proxy_address → TonUsage`
+- `users`: a map of `proxy_hash → TonUsage`
 
 ### Round Parity and Proxy Assignment
 
@@ -327,7 +330,7 @@ Nominators interact with the pool by sending text-comment messages. They can dep
 
 | Comment | Action |
 |---------|--------|
-| `"d"` | **Deposit**: TON minus `DEPOSIT_GAS` is converted to shares. If the round is closed, funds go into a pending deposit queue. |
+| `"d"` | **Deposit**: TON minus `DEPOSIT_GAS` is converted to shares. If the round is closed or there are still unrecovered stakes in the previous round, funds go into a pending deposit queue. |
 | `"w"` | **Full Withdrawal**: Removes the nominator. If balance is insufficient, creates a pending withdrawal PayoutItem for later. |
 | `"r"` | **Reward Withdrawal**: Withdraws only the profit (share value minus original deposit). Also subject to pending-queue logic if the round is closed. |
 
@@ -347,6 +350,7 @@ Nominators interact with the pool by sending text-comment messages. They can dep
 | `AddValidator` | Whitelists an additional validator with its own proxy and round allowance. |
 | `RemoveValidator` | Bans a validator from new stakes. Record is kept until stake recovery is complete. |
 | `UpdateLimits` | Adjusts global or per-validator staking/nominator limits. |
+| `UpdateNominatorsWhitelist` | Replaces the nominator whitelist. If the whitelist is non-empty, only listed addresses may deposit. |
 | `OwnerWithdrawal` | Withdraws the owner's share of profits, provided free balance exists. |
 | `AddFunds` | Accepts bare TON to increase the owner's effective share. |
 
@@ -370,10 +374,28 @@ All fees are defined in `contracts/fees.tolk`:
 
 ---
 
+## Getters
+
+The pool exposes several getters for off-chain queries:
+
+| Getter | Returns | Description |
+|--------|---------|-------------|
+| `owner()` | `address` | Pool owner address. |
+| `get_pool_data()` | `Storage` | Full pool state (owner, shares, round status, validator data, nominators, etc.). |
+| `get_nominator_data(nominatorAddress: int)` | `GetNominatorData` | Nominator info from a 256-bit address hash. Searches basechain (`wc=0`) and masterchain (`wc=-1`) for compatibility. |
+| `get_validator_info(address: address)` | `GetValidatorInfo` | Validator data, usage records, and the **current stakeable amount** — the TON the validator is allowed to use in the current round given available balance, limits, and round state. |
+| `get_validator_info_mtc(workchain: int, hash: int)` | `GetValidatorInfo` | Same as `get_validator_info`, but accepts workchain + hash for masterchain tooling compatibility. |
+| `get_proxy_address(validator: address)` | `GetProxyAddressResult` | Even/odd proxy addresses for a given validator. |
+| `get_limits_per_validator()` | `(coins, coins, coins)` | `(minTonPerValidator, maxTonPerValidator, maxRefundAmount)`. |
+| `get_nominator_minimal_stake()` | `GetMinStake` | `(minStake, minExpectedValue)` where `minExpectedValue = minStake + DEPOSIT_GAS`. |
+| `get_max_punishment(stake: int)` | `int` | Max punishment fine for a given stake amount, derived from config param 40. |
+
+---
+
 ## Security Model
 
 ### Role Separation
-- **Owner**: Controls economics (share of profit, validator whitelist, limits). Can withdraw owner profits.
+- **Owner**: Controls economics (share of profit, validators and nominators whitelists, limits). Can withdraw owner profits.
 - **Validator**: Only acts as the technical operator (new/recover stake). Cannot touch nominator funds directly.
 - **Nominator**: Only depositor/withdrawer. Cannot influence validator operations.
 
@@ -396,7 +418,8 @@ If pending nominator operations cannot be cleared in a single round rotation, th
 ### Implemented optional features
 - Nominators from arbitrary workchains are supported for deposit/withdrawal.
 - Configurable nominator quantity and minimum stake.
-- Configurable per-validator and global staking limits.
+- Configurable per-validator and global staking limits, validated against network config 17 bounds.
+- Nominator whitelist: owner can restrict deposits to a specific set of addresses via `NominatorsSettings.whitelist` or `UpdateNominatorsWhitelist`.
 - Reward withdrawal via `"r"` comment.
 - Dynamic validator quantity (up to 128 validators).
 - Owner-only mode: set `maxNominators = 0` to reject nominator deposits.
