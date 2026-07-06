@@ -269,6 +269,22 @@ fun Pool.sendUpdateLimits(
     return net.send(from, genericMsg);
 }
 
+fun Pool.sendUpdateNominatorsWhitelist(
+    self,
+    from: address,
+    queryId: uint64,
+    whitelist: map<address, bool>,
+    config: SendParams = {},
+): SendResultList {
+    val genericMsg = createMessage({
+        bounce: config.bounce,
+        value: config.value,
+        dest: self.address,
+        body: UpdateNominatorsWhitelist { queryId, whitelist },
+    });
+    return net.send(from, genericMsg);
+}
+
 fun Pool.sendRemoveValidator(
     self,
     from: address,

@@ -573,6 +573,17 @@ fun onInternalMessage(in: InMessage) {
                 );
             }
         }
+        UpdateNominatorsWhitelist => {
+            refundError(
+                in.senderAddress,
+                {
+                    op: opcode<UpdateNominatorsWhitelist>(),
+                    queryId: msg.queryId,
+                    errorCode: ErrorsPool.NotOwner,
+                },
+                SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE,
+            );
+        }
         RemoveValidator => {
             refundError(
                 in.senderAddress,

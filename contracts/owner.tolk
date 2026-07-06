@@ -9,6 +9,7 @@ import "types"
 type OwnerMessages =
     | AddValidator
     | UpdateLimits
+    | UpdateNominatorsWhitelist
     | AddValidator
     | RemoveValidator
     | OwnerWithdrawal
@@ -199,6 +200,34 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
                         queryId: msg.queryId,
                     },
                     SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE | SEND_MODE_IGNORE_ERRORS,
+                );
+            }
+        }
+        UpdateNominatorsWhitelist => {
+            try {
+                assert(sender == storage.owner, ErrorsPool.NotOwner);
+                var nominators = lazy storage.nominators.load();
+                nominators.nominatorsWhitelist = msg.whitelist;
+                storage.nominators = nominators.toCell();
+                storage.save();
+                refundError(
+                    sender,
+                    {
+                        queryId: msg.queryId,
+                        op: opcode<UpdateNominatorsWhitelist>(),
+                        errorCode: 0,
+                    },
+                    SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE | SEND_MODE_IGNORE_ERRORS,
+                );
+            } catch (e) {
+                refundError(
+                    sender,
+                    {
+                        queryId: msg.queryId,
+                        op: opcode<UpdateNominatorsWhitelist>(),
+                        errorCode: e,
+                    },
+                    SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE,
                 );
             }
         }

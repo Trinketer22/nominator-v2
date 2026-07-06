@@ -197,6 +197,11 @@ struct (0x219d71f1) UpdateLimits {
     limit: GlobalValidatorsLimit | GlobalNominatorsLimit | ValidatorSpecific
 }
 
+struct (0x219d71f6) UpdateNominatorsWhitelist {
+    queryId: uint64
+    whitelist: map<address, bool>
+}
+
 struct (0x219d71ef) OwnerWithdrawalSuccess {
     queryId: uint64
 }

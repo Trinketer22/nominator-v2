@@ -671,6 +671,72 @@ get fun `test owner should be able to update per-validator limit`(maxTon: coins,
     }
 }
 
+@test.fuzz(1)
+get fun `test owner should be able to update nominators whitelist`(testNm: address) {
+    var (share, validatorsSettings, nominatorsSettings) = defaultDeployParams();
+    val (elector, stakes, limits) = setupElector();
+    var whitelistNms: map<address, bool> = [];
+    repeat (5) {
+        val newAddr = address.fromWorkchainAndHash(BASECHAIN, random.uint256());
+        whitelistNms.set(newAddr, true);
+    }
+
+    nominatorsSettings.whitelist = whitelistNms;
+    val (pool, owner, _notOwner, validator) = setupDeployedPool({
+        nominatorsSettings,
+    });
+
+    var stateBefore = getAccountData(pool.address);
+    var balanceBefore = testing.getAccountBalance(pool.address);
+    val testAmount = stakes.minStake * 5;
+    var depoReject = pool.sendTextComment(testNm, "d".beginParse(), { value: testAmount });
+
+    expect(depoReject).toHaveRefund<TextComment>({
+        to: testNm,
+        from: pool.address,
+        previousState: stateBefore,
+        initialBalance: balanceBefore,
+        error: ErrorsPool.DepositNotAllowed,
+    });
+    // Now owner updates the whitelist
+    whitelistNms.set(testNm, true);
+    val updateWl = pool.sendUpdateNominatorsWhitelist(
+        owner.address,
+        DEFAULT_QUERY_ID,
+        whitelistNms,
+    );
+    expect(updateWl).toHaveRefund<UpdateNominatorsWhitelist>({
+        from: pool.address,
+        to: owner.address,
+        initialBalance: balanceBefore,
+    });
+    assertPoolDepositInstant(pool, testNm, testAmount);
+}
+
+get fun `test only owner should be able to update nominators whitelist`() {
+    val (pool, owner, _notOwner, validator) = setupDeployedPool();
+    val stateBefore = getAccountData(pool.address);
+    val balanceBefore = testing.getAccountBalance(pool.address);
+
+    val attacker = testing.treasury("attacker");
+    var newWl: map<address, bool> = [];
+    newWl.set(attacker.address, true);
+
+    val updateWl = pool.sendUpdateNominatorsWhitelist(
+        attacker.address,
+        DEFAULT_QUERY_ID,
+        newWl,
+    );
+
+    expect(updateWl).toHaveRefund<UpdateNominatorsWhitelist>({
+        from: pool.address,
+        to: attacker.address,
+        previousState: stateBefore,
+        initialBalance: balanceBefore,
+        error: ErrorsPool.NotOwner,
+    });
+}
+
 @test.fuzz(256)
 get fun `test owner should be able to withdraw it's share`(requestValue: coins, _inValue: coins) {
     val (elector, stakes, _limits) = setupElector();
