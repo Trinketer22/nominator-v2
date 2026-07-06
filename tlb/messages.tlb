@@ -20,6 +20,26 @@ addr_std$10 anycast:(Maybe Anycast)
 addr_none$00 = MsgAddressIntOrNone;
 addr_std_or_none$100 workchain_id:int8 address:bits256 = MsgAddressIntOrNone;
 
+// Copied from TON block.tlb for fixed-length Hashmap/HashmapE support.
+bit$_ (## 1) = Bit;
+
+hm_edge#_ {n:#} {X:Type} {l:#} {m:#} label:(HmLabel ~l n)
+          {n = (~m) + l} node:(HashmapNode m X) = Hashmap n X;
+
+hmn_leaf#_ {X:Type} value:X = HashmapNode 0 X;
+hmn_fork#_ {n:#} {X:Type} left:^(Hashmap n X)
+           right:^(Hashmap n X) = HashmapNode (n + 1) X;
+
+hml_short$0 {m:#} {n:#} len:(Unary ~n) {n <= m} s:(n * Bit) = HmLabel ~n m;
+hml_long$10 {m:#} n:(#<= m) s:(n * Bit) = HmLabel ~n m;
+hml_same$11 {m:#} v:Bit n:(#<= m) = HmLabel ~n m;
+
+unary_zero$0 = Unary ~0;
+unary_succ$1 {n:#} x:(Unary ~n) = Unary ~(n + 1);
+
+hme_empty$0 {n:#} {X:Type} = HashmapE n X;
+hme_root$1 {n:#} {X:Type} root:^(Hashmap n X) = HashmapE n X;
+
 validator_signature$_ signature:bits512 = ValidatorSignature;
 round_allowance$_ value:uint2 = RoundAllowance;
 
@@ -210,9 +230,10 @@ add_validator#219d71f5
   limits:(Maybe ValidatorLimit)
 = AddValidator;
 
-remove_validator#219d71f4 query_id:uint64 validator:MsgAddressInt = RemoveValidator;
-add_funds#219d71f3 query_id:uint64 = AddFunds;
-owner_withdrawal#219d71f2 query_id:uint64 amount:Grams = OwnerWithdrawal;
-update_limits#219d71f1 query_id:uint64 limit:UpdateLimit = UpdateLimits;
-owner_withdrawal_success#219d71ef query_id:uint64 = OwnerWithdrawalSuccess;
+remove_validator#66d3ad60 query_id:uint64 validator:MsgAddressInt = RemoveValidator;
+add_funds#42a515de query_id:uint64 = AddFunds;
+owner_withdrawal#11c31b99 query_id:uint64 amount:Grams = OwnerWithdrawal;
+update_limits#f36da828 query_id:uint64 limit:UpdateLimit = UpdateLimits;
+update_nominators_whitelist#c2d9e5ad query_id:uint64 whitelist:(HashmapE 267 Bool) = UpdateNominatorsWhitelist;
+owner_withdrawal_success#43921f80 query_id:uint64 = OwnerWithdrawalSuccess;
 round_info_message#e4649054 query_id:uint64 info:RoundInfo = RoundInfoMessage;

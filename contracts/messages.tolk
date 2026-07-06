@@ -178,31 +178,31 @@ struct (0x219d71f5) AddValidator {
     limits: ValidatorLimit?
 }
 
-struct (0x219d71f4) RemoveValidator {
+struct (0x66d3ad60) RemoveValidator {
     queryId: uint64
     validator: address
 }
 
-struct (0x219d71f3) AddFunds {
+struct (0x42a515de) AddFunds {
     queryId: uint64
 }
 
-struct (0x219d71f2) OwnerWithdrawal {
+struct (0x11c31b99) OwnerWithdrawal {
     queryId: uint64
     amount: coins
 }
 
-struct (0x219d71f1) UpdateLimits {
+struct (0xf36da828) UpdateLimits {
     queryId: uint64
     limit: GlobalValidatorsLimit | GlobalNominatorsLimit | ValidatorSpecific
 }
 
-struct (0x219d71f6) UpdateNominatorsWhitelist {
+struct (0xc2d9e5ad) UpdateNominatorsWhitelist {
     queryId: uint64
     whitelist: map<address, bool>
 }
 
-struct (0x219d71ef) OwnerWithdrawalSuccess {
+struct (0x43921f80) OwnerWithdrawalSuccess {
     queryId: uint64
 }
 
