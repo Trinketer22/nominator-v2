@@ -31,12 +31,13 @@ type ElectorMessages =
     | RecoverStakeError
 
 fun proxyMsg(dst: address, body: slice, mode: int, value: int, bouncable: bool) {
-    createMessage({
+    val outMessage = createMessage({
         bounce: bouncable,
         dest: dst,
         value,
         body,
-    }).send(mode);
+    });
+    outMessage.send(mode);
 }
 
 fun onBouncedMessage(in: InMessageBounced) {
@@ -88,7 +89,7 @@ fun onInternalMessage(in: InMessage) {
             InitProxy => {
                 // Take the storage reserve, and refund rest to the owner
                 reserveGramsOnBalance(PROXY_MIN_STORAGE, RESERVE_MODE_AT_MOST);
-                createMessage({
+                val proxyInit = createMessage({
                     bounce: false,
                     dest: msg.response,
                     value: 0,
@@ -97,7 +98,10 @@ fun onInternalMessage(in: InMessage) {
                         validator: storage.validator,
                         parity: storage.roundParity,
                     },
-                }).send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS);
+                });
+                // SAFETY: PROXY_MIN_STORAGE was reserved with RESERVE_MODE_AT_MOST above, so CARRY_ALL_BALANCE sends only surplus.
+                // Since refund is an optional action, IGNORE_ERRORS makes perfect sense.
+                proxyInit.send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS);
             }
             NewStake => {
                 // Incoming value here is guaranteed to exceed compute budget by far.
@@ -142,11 +146,12 @@ fun onInternalMessage(in: InMessage) {
         // Fall through for the other message types
         proxyMsg(poolAddr, proxyResponse, outMode, outValue, false);
     } else {
-        createMessage({
+        val wrongSenderRefund = createMessage({
             bounce: false,
             value: 0,
             dest: in.senderAddress,
             body: ProxyRefundWrongSender { queryId: 0 },
-        }).send(SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE);
+        });
+        wrongSenderRefund.send(SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE);
     }
 }

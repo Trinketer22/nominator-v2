@@ -27,6 +27,6 @@ fun getElectorAddress(): address {
     );
 }
 
-fun StakingLimits.load() {
+fun StakingLimits.load(): StakingLimits {
     return StakingLimits.fromCell(blockchain.configParam(17)!);
 }

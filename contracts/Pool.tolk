@@ -126,12 +126,15 @@ fun handleTextComment(comment: slice, sender: address, value: coins) {
                 RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_BOUNCE_ON_ACTION_FAIL,
             );
 
-            createMessage({
+            val depoNotification = createMessage({
                 bounce: false,
                 dest: sender,
                 value: 0,
                 body: DepositSuccess { queryId: 0 },
-            }).send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS);
+            });
+            // SAFETY Reserving original balance + incommingValue, refund the fee leftowers
+            // Failure should not revert state.
+            depoNotification.send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS);
         }
         WithdrawalMessage => {
             var storage = lazy Storage.load();
@@ -266,7 +269,7 @@ fun Storage.finalizeRound(mutate self, rotationStatus: RotationStatus): int {
     return sentTotal;
 }
 
-fun Storage.getStakableBalance(self, inValue: coins, stakeUsed: int) {
+fun Storage.getStakableBalance(self, inValue: coins, stakeUsed: int): (coins, coins, int) {
     // pendingDeposits nominated in coins.
     // pendingWithdrawals howevever are nominated in shares
     // thus require conversion
@@ -396,12 +399,15 @@ fun onInternalMessage(in: InMessage) {
             msg.queryId,
         );
 
-        createMessage({
+        val initPoolSuccess = createMessage({
             bounce: false,
             dest: storage.owner,
             value: 0,
             body: InitPoolSuccess { queryId: msg.queryId },
-        }).send(SEND_MODE_CARRY_ALL_BALANCE);
+        });
+        // SAFETY: RESERVE_MODE_EXACT_AMOUNT reserves exactly reserveAmount for contract storage.
+        // CARRY_ALL_BALANCE sends the entire balance above this reserve (the surplus from the incoming value).
+        initPoolSuccess.send(SEND_MODE_CARRY_ALL_BALANCE);
 
         val validatorsData = ValidatorsData {
             mainValidatorAddress: msg.mainValidator,
@@ -413,7 +419,7 @@ fun onInternalMessage(in: InMessage) {
             mainValidatorData: mainValidator.toCell(),
             maxRefundAmount: msg.maxRefund,
         };
-        validatorsData.assertStakingLimit(msg.minTonPerValidator, msg.maxTonPerValidator);
+        assertStakingLimit(msg.minTonPerValidator, msg.maxTonPerValidator);
         val newStorage = Storage {
             owner: storage.owner,
             poolId: storage.poolId,
@@ -590,7 +596,8 @@ fun onInternalMessage(in: InMessage) {
                     return;
                 }
 
-                NewStakeBody.fromSlice(msg.signedBody);
+                val newStake = NewStakeBody.fromSlice(msg.signedBody);
+                assert(newStake.stakeAt >= 0, ErrorsPool.InvalidMessage);
 
                 val valLimit = valData.data.limit;
                 val stakeMax = getValidatorLimit(
@@ -660,7 +667,7 @@ fun onInternalMessage(in: InMessage) {
                 storage.validators = validators.toCell();
                 storage.save();
 
-                createMessage({
+                val newStakeElector = createMessage({
                     bounce: true,
                     dest: proxyAddress,
                     value: msg.value,
@@ -668,7 +675,10 @@ fun onInternalMessage(in: InMessage) {
                         queryId: msg.queryId,
                         body: msg.signedBody,
                     },
-                }).send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
+                });
+                newStakeElector.send(
+                    SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL,
+                );
                 reserveGramsOnBalance(
                     msg.value - REFUND_THRESHOLD,
                     RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_NEGATE_AMOUNT |
@@ -755,13 +765,14 @@ fun onInternalMessage(in: InMessage) {
                 storage.validators = validators.toCell();
                 storage.save();
 
-                createMessage({
+                val recoveryStake = createMessage({
                     dest: proxyState,
                     bounce: false,
                     value: actionableValue -
                     calculateGasFee(BASECHAIN, getGasConsumedAtTheMoment() * 2),
                     body: in.body,
-                }).send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
+                });
+                recoveryStake.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
                 reserveGramsOnBalance(
                     MAX_RECOVERY_VALUE,
                     RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_AT_MOST,
@@ -818,7 +829,7 @@ fun onInternalMessage(in: InMessage) {
             assert(in.valueCoins >= minFee, ErrorsPool.NotEnoughGas);
 
             reserveGramsOnBalance(0, RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE);
-            createMessage({
+            val recoverStakeCompat = createMessage({
                 dest: proxyState,
                 // It will cary stateinit in case of unfreeze
                 // So should not bounce of frozen acct
@@ -826,7 +837,8 @@ fun onInternalMessage(in: InMessage) {
                 bounce: false,
                 value: msg.amount,
                 body: RecoverStakeCompat { queryId: msg.queryId },
-            }).send(SEND_MODE_PAY_FEES_SEPARATELY);
+            });
+            recoverStakeCompat.send(SEND_MODE_PAY_FEES_SEPARATELY);
             refundError(
                 in.senderAddress,
                 {
@@ -858,7 +870,7 @@ fun onInternalMessage(in: InMessage) {
                 returned -= refundAmount + refundBonus;
             }
 
-            var (stakeReturned, _roundIdx, roundDone) = validators.coverUsageByAddress(
+            val (stakeReturned, _roundIdx, roundDone) = validators.coverUsageByAddress(
                 in.senderAddress,
                 returned,
                 (storage.roundIndex % 2 > 0) == proxyData.parity,
@@ -880,7 +892,7 @@ fun onInternalMessage(in: InMessage) {
             // This should practically always be true.
             if (validator != null) {
                 // Should we refund in case of negative returns?
-                createMessage({
+                val stakeReturnedMsg = createMessage({
                     bounce: false,
                     value: refundAmount + refundBonus,
                     dest: stakeReturned.validator,
@@ -890,7 +902,8 @@ fun onInternalMessage(in: InMessage) {
                         returned,
                         validator: stakeReturned.validator,
                     },
-                }).send(SEND_MODE_REGULAR | SEND_MODE_IGNORE_ERRORS);
+                });
+                stakeReturnedMsg.send(SEND_MODE_REGULAR | SEND_MODE_IGNORE_ERRORS);
 
                 // Who we owe are all forgiven
                 validator.data.usageState &= ~parityToMask(proxyData.parity);
@@ -991,7 +1004,7 @@ fun onInternalMessage(in: InMessage) {
                         sharePrice,
                         RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_NEGATE_AMOUNT,
                     );
-                    createMessage({
+                    val withdrawSuccess = createMessage({
                         bounce: false,
                         dest: msg.owner,
                         value: 0,
@@ -1005,10 +1018,15 @@ fun onInternalMessage(in: InMessage) {
                                 distribution.pendingShare,
                             ),
                         },
-                    }).send(
+                    });
+                    // SAFETY: RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_NEGATE_AMOUNT reserves balanceOrig - sharePrice,
+                    // leaving sharePrice plus any unused gas from the incoming message available. CARRY_ALL_BALANCE sends those available funds.
+                    // IGNORE_ERRORS is used because if a nominator's withdrawal amount is so small that it cannot cover the forwarding fees,
+                    // we intentionally let the send fail silently (absorbing the rounding dust) rather than fail the action phase or introduce
+                    // a minimum withdrawal gate.
+                    withdrawSuccess.send(
                         SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS,
-                    ); // Can fail only in case sharePrice can't cover forwarding fees, which is ok
-                    // Ignore errors in case share price is too low to send
+                    );
                 } else {
                     // Should never happen in reality, because pending amounts
                     // are excluded from the staking mass, but even if it does,
@@ -1165,7 +1183,7 @@ get fun get_validator_info(address: address): GetValidatorInfo {
     };
 }
 
-get fun get_validator_info_mtc(workchain: int, hash: int) {
+get fun get_validator_info_mtc(workchain: int, hash: int): GetValidatorInfo {
     val address = address.fromWorkchainAndHash(workchain, hash);
     return get_validator_info(address);
 }

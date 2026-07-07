@@ -34,15 +34,16 @@ fun burnItem(sender: address, distribution: Distribution, queryId: int) {
             assert(sender == staticData.pool ||
             sender == staticData.prev!, ErrorsPayout.InvalidSender);
             if (staticData.next != null) {
-                createMessage({
+                val burnNotification = createMessage({
                     bounce: false,
                     value: BURN_NOTIFICATION_AMOUNT,
                     dest: staticData.next,
                     body: PayoutBurnMessage { queryId, distribution },
-                }).send(SEND_MODE_PAY_FEES_SEPARATELY);
+                });
+                burnNotification.send(SEND_MODE_PAY_FEES_SEPARATELY);
             }
 
-            createMessage({
+            val payoutBurn = createMessage({
                 bounce: false,
                 value: 0,
                 dest: staticData.pool,
@@ -54,7 +55,10 @@ fun burnItem(sender: address, distribution: Distribution, queryId: int) {
                     roundIndex: staticData.roundIndex,
                     distribution,
                 },
-            }).send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_DESTROY);
+            });
+            // SAFETY: PayoutItem is being destroyed (SEND_MODE_DESTROY) and all remaining balance is sent to the pool.
+            // The item contract is no longer needed after this send, so CARRY_ALL_BALANCE is safe.
+            payoutBurn.send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_DESTROY);
         }
         ItemStorageNotInitialized => {
             throw 0xffff;
@@ -89,7 +93,7 @@ fun onInternalMessage(in: InMessage) {
 
             reserveGramsOnBalance(MIN_STORAGE, RESERVE_MODE_AT_MOST);
 
-            createMessage({
+            val initRefund = createMessage({
                 bounce: false,
                 dest: msg.owner,
                 value: 0,
@@ -100,7 +104,10 @@ fun onInternalMessage(in: InMessage) {
                         errorCode: 0,
                     },
                 },
-            }).send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS);
+            });
+            // SAFETY: MIN_STORAGE was already reserved with RESERVE_MODE_AT_MOST, so CARRY_ALL_BALANCE sends only surplus.
+            // IGNORE_ERRORS is acceptable because the PayoutItem is already initialized and the owner only paid init gas.
+            initRefund.send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS);
         }
         PayoutBurnMessage => {
             burnItem(in.senderAddress, msg.distribution, msg.queryId);

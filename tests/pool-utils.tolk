@@ -296,7 +296,7 @@ fun runRound(
 ) {
     val poolBefore = pool.getPoolData();
     val validators = poolBefore.validators.load();
-    val mainBefore = validators.mainValidatorData.load();
+    val _mainBefore = validators.mainValidatorData.load();
     var curBefore: ValidatorUsageRecords? = null;
 
     curBefore = pool.getValidatorInfo(validator).usage;

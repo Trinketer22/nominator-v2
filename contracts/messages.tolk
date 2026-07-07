@@ -212,10 +212,11 @@ struct (0xe4649054) RoundInfoMessage {
 }
 
 fun refundError(to: address, ctx: RefundContext, mode: int) {
-    createMessage({
+    val refund = createMessage({
         bounce: false,
         dest: to,
         value: 0,
         body: RefundMessage { context: ctx },
-    }).send(mode);
+    });
+    refund.send(mode);
 }

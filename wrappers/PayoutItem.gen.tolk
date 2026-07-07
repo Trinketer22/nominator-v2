@@ -6,7 +6,6 @@
 import "@acton/build"
 import "@acton/emulation/network"
 import "@acton/testing/assert"
-import "@contracts/PayoutItem"
 import "@contracts/types"
 
 /// Storage `ItemStorageNotInitialized` is defined in `@contracts/types`

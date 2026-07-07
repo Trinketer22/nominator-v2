@@ -449,7 +449,7 @@ get fun `test reward should be claimable in pending mode`() {
 
 get fun `test if validator refund amount is clamped by maxRefundAmount in profit calculation`() {
     val (elector, stakes, limits) = setupElector();
-    val (pool, owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
+    val (pool, owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(40);
 
     val testValidator = setupRandomValidator(pool, owner.address);
     val poolBefore = pool.getPoolData();
@@ -1067,7 +1067,7 @@ get fun `test nominator with both pending withdrawals and pending depo, should e
 
 get fun `test that if any stakes used in prev round, deposit should become pending`() {
     val (elector, stakes, limits) = setupElector();
-    val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(40);
 
     val testNm = testing.treasury("testNominator");
     val depoValue = random.range(ton("20000")) + ton("10000");
@@ -1503,7 +1503,7 @@ get fun `test in closed round, deposit should become pending`() {
 }
 
 get fun `test if whitelist is set, only nms on the list are allowed to depo`() {
-    var (share, validatorsSettings, nominatorsSettings) = defaultDeployParams();
+    var (_share, _validatorsSettings, nominatorsSettings) = defaultDeployParams();
     val (elector, stakes, limits) = setupElector();
     var whitelistNms: map<address, bool> = [];
     repeat (5) {

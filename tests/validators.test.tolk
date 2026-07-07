@@ -685,7 +685,7 @@ get fun `test validator should be able to recover stake and rotate round`() {
 
 get fun `test validator should be able to fully close usage record for both rounds`() {
     val (elector, stakes, limits) = setupElector();
-    val (pool, owner, _notOwner, validator, _nominators) = setupPoolWithNominators(40);
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(40);
 
     runRound(
         pool,
@@ -707,7 +707,7 @@ get fun `test validator should be able to fully close usage record for both roun
     );
 
     val poolBefore = pool.getPoolData();
-    val validators = poolBefore.validators.load();
+    val _validators = poolBefore.validators.load();
     val validatorBefore = pool.getValidatorInfo(validator);
     expect(validatorBefore.validator.usageState).toEqual(RoundAllowance.InAllRounds as int);
     // 2 stakes + 2 routations
@@ -716,14 +716,14 @@ get fun `test validator should be able to fully close usage record for both roun
     expect(recovery).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
     expect(recovery).toHaveTx<StakeReturned>({ from: pool.address, to: validator });
 
-    val elections = announceElections(elector);
+    val _elections = announceElections(elector);
 
     runElections(elector, stakes, limits);
 
     pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
     val beforeRecovery = pool.getValidatorInfo(validator);
     val secondRecovery = waitAndRecoverStake(pool, validator, elector.address);
-    val refundBonus = calculateGasFee(BASECHAIN, REFUND_BONUS_GAS);
+    val _refundBonus = calculateGasFee(BASECHAIN, REFUND_BONUS_GAS);
     expect(secondRecovery).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
     val refundTx = secondRecovery.findTransaction<StakeReturned>({
         from: pool.address,
@@ -856,19 +856,19 @@ get fun `test vset can't rotate twice`() {
 
     val testStake = stakes.minStake * 2;
     val testValidator = setupRandomValidator(pool, owner.address);
-    var elections = announceElections(elector);
+    val elections = announceElections(elector);
 
     assertPoolNewStake(validator, pool, elector, elections, testStake);
     assertPoolNewStake(testValidator, pool, elector, elections, testStake);
 
-    var newSetHash = updateVsetHash();
+    val newSetHash = updateVsetHash();
 
     pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
 
     var poolAfter = pool.getPoolData();
     var validatorsAfter = poolAfter.validators.load();
     var prevRound = validatorsAfter.prevRound.load();
-    val mainAfter = pool.getValidatorInfo(validator);
+    val _mainAfter = pool.getValidatorInfo(validator);
     expect(validatorsAfter.vsetHash).toEqual(newSetHash >> 128);
 
     expect(prevRound).toRotate({

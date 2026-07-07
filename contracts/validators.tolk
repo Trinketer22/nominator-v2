@@ -20,7 +20,7 @@ fun ValidatorsData.assertValidatorLimit(self, limit: ValidatorLimit) {
     }
 }
 
-fun ValidatorsData.assertStakingLimit(self, minTonPerValidator: coins, maxTonPerValidator: coins) {
+fun assertStakingLimit(minTonPerValidator: coins, maxTonPerValidator: coins) {
     val networkLimits = lazy StakingLimits.load();
     assert(maxTonPerValidator > minTonPerValidator, ErrorsPool.InvalidMaxMin);
     assert(minTonPerValidator >= networkLimits.minStake, ErrorsPool.MinStakeBelowNetworkLimit);
@@ -33,7 +33,7 @@ fun ValidatorsData.coverUsageByAddress(
     amount: int,
     curFirst: bool,
 ): (TonUsage?, uint64, bool) {
-    var (firstRound, nextRound) = curFirst
+    val (firstRound, nextRound) = curFirst
         ? (self.curRound, self.prevRound)
         : (self.prevRound, self.curRound);
     var round = firstRound.load();
@@ -157,7 +157,7 @@ fun ValidatorsData.rotateRound(
     prevRound = self.prevRound.load();
     val truncHash = curVset.vsetHash >> 128;
 
-    var setRotated = truncHash != self.vsetHash;
+    val setRotated = truncHash != self.vsetHash;
 
     if (setRotated) {
         if (!prevRound.users.isEmpty()) {
@@ -313,12 +313,13 @@ fun Validator.deployProxy(
                 self.evenProxy = proxyAddrHash;
             }
 
-            createMessage({
+            val proxyInit = createMessage({
                 bounce: false,
                 dest: proxyState,
                 value: deployCost,
                 body: InitProxy { queryId, response },
-            }).send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
+            });
+            proxyInit.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
         }
 
         bitPosition += 1;
@@ -348,7 +349,7 @@ fun Validator.rotateVset(
 }
 
 fun RotationData.rotateVset(mutate self, newSetHash: int): bool {
-    var hasRotated = self.vsetHash != newSetHash;
+    val hasRotated = self.vsetHash != newSetHash;
 
     if (hasRotated) {
         self.vsetHash = newSetHash;
@@ -428,7 +429,7 @@ fun getProxyAddress(validator: address, isOdd: bool): address {
     return getProxyState(validator, isOdd).calculateAddress();
 }
 
-fun getValidatorLimit(limit: ValidatorLimit?, totalBalance: int, maxTonPerValidator: int) {
+fun getValidatorLimit(limit: ValidatorLimit?, totalBalance: int, maxTonPerValidator: int): int {
     return match (limit) {
         ValidatorLimitTon => min(maxTonPerValidator, limit.maxTon),
         ValidatorLimitShare => min(

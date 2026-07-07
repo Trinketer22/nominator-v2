@@ -285,7 +285,7 @@ get fun `test low RecoverStakeOk uses proxy balance and sends minimum`() {
 }
 
 get fun `test bounced NewStake should be forwarded to pool as NewStakeError`() {
-    val (proxy, validator, _otherWallet, pool, electorAddr) = setupProxyTestContext();
+    val (proxy, _validator, _otherWallet, pool, electorAddr) = setupProxyTestContext();
     val newStake = NewStake {
         queryId: DEFAULT_QUERY_ID,
         value: ton("100000"),

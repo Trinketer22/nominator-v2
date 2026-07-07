@@ -13,7 +13,7 @@ type OwnerMessages =
     | RemoveValidator
     | OwnerWithdrawal
 
-fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value: coins) {
+fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value: coins): bool {
     val msg = lazy OwnerMessages.fromSlice(msgSlice);
     var handled = true;
     match (msg) {
@@ -129,12 +129,16 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
                     msg.amount,
                     RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_NEGATE_AMOUNT,
                 );
-                createMessage({
+                val ownerWithdrawalMsg = createMessage({
                     bounce: false,
                     dest: sender,
                     value: 0,
                     body: OwnerWithdrawalSuccess { queryId: msg.queryId },
-                }).send(SEND_MODE_CARRY_ALL_BALANCE);
+                });
+                // SAFETY: RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_NEGATE_AMOUNT reserves balanceOrig - msg.amount,
+                // leaving msg.amount plus any unused gas from the incoming message available.
+                // CARRY_ALL_BALANCE sends all remaining funds (the owner's withdrawal amount plus gas surplus) in one go.
+                ownerWithdrawalMsg.send(SEND_MODE_CARRY_ALL_BALANCE);
             } catch (e) {
                 refundError(
                     sender,
@@ -155,7 +159,7 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
 
                 match (msg.limit) {
                     GlobalValidatorsLimit => {
-                        validators.assertStakingLimit(
+                        assertStakingLimit(
                             msg.limit.minTonPerValidator,
                             msg.limit.maxTonPerValidator,
                         );

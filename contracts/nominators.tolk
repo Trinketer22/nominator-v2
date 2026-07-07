@@ -66,6 +66,7 @@ fun Nominator.withdrawShare(
     // 0 case can only be withdrawn in pending mode again
     if (roundClosed || availableBalance < shareValue || shareValue == 0) {
         assert(msgValue >= WITHDRAWAL_GAS, ErrorsPool.NotEnoughGas);
+        // Means all the expenses are out of incommingValue
         reserveGramsOnBalance(
             0,
             RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_BOUNCE_ON_ACTION_FAIL,
@@ -85,7 +86,7 @@ fun Nominator.withdrawShare(
         // Something that is not possible in liquid pools
         self.withdrawalIndex = roundIndex + 2;
         self.pendingWithdrawal += shareCount;
-        createMessage({
+        val pendingRefund = createMessage({
             bounce: false,
             dest: owner,
             value: 0,
@@ -95,7 +96,11 @@ fun Nominator.withdrawShare(
                     errorCode: 0,
                 },
             },
-        }).send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS);
+        });
+        // SAFETY: CARRY_ALL_BALANCE in this case is the incomming message value - gas - any outgoing value
+        // from pending PayoutItem deployment.
+        // IGNORE_ERRORS is safe because it is a refund.
+        pendingRefund.send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS);
 
         return pendingWithdrawals.toCell();
     }
@@ -105,7 +110,7 @@ fun Nominator.withdrawShare(
         RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_NEGATE_AMOUNT |
         RESERVE_MODE_BOUNCE_ON_ACTION_FAIL,
     );
-    createMessage({
+    val withdrawSuccess = createMessage({
         bounce: false,
         dest: owner,
         value: 0,
@@ -115,7 +120,12 @@ fun Nominator.withdrawShare(
             returned: shareValue,
             left: 0,
         },
-    }).send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
+    });
+    // SAFETY: RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_NEGATE_AMOUNT reserves balanceOrig - shareValue,
+    // leaving shareValue plus any unused gas from the incoming message available. CARRY_ALL_BALANCE sends all remaining
+    // funds (the shareValue plus gas surplus) in one go. BOUNCE_ON_ACTION_FAIL ensures the gas surplus is returned to the user
+    // if shareValue can't be withdrawn
+    withdrawSuccess.send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
 
     return null;
 }
@@ -169,7 +179,7 @@ fun PendingOps.process(self, availableBalance: coins, supply: coins, total: coin
     // even at a cost of loosing fraction of storage reserve.
     // If this ever happens, that would mean pool is already at dire situation
     if (processedAmount > 0) {
-        createMessage({
+        val burnMessage = createMessage({
             bounce: false,
             dest: self.cur!,
             value: PAYOUT_ITEM_BALANCE, // Item balance - fwd fees is more than enough to cover gas
@@ -187,7 +197,8 @@ fun PendingOps.process(self, availableBalance: coins, supply: coins, total: coin
             //
             // Deposits/withdrawal is an retryable action, even though it is unpleasent
             // Especially for the depositors
-        }).send(SEND_MODE_REGULAR | SEND_MODE_IGNORE_ERRORS);
+        });
+        burnMessage.send(SEND_MODE_REGULAR | SEND_MODE_IGNORE_ERRORS);
     }
     return (processedAmount, false);
 }
@@ -223,7 +234,7 @@ fun PendingOps.addPending(mutate self, owner: address, amount: int, roundIndex: 
         toShard: { closeTo: contract.getAddress(), fixedPrefixLength: 4 },
     }.calculateAddress();
 
-    createMessage({
+    val payoutInit = createMessage({
         bounce: false,
         dest: {
             stateInit: curStateInit,
@@ -238,7 +249,8 @@ fun PendingOps.addPending(mutate self, owner: address, amount: int, roundIndex: 
             prev: self.next,
             next: self.prev,
         },
-    }).send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
+    });
+    payoutInit.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
 
     return self.index;
 }

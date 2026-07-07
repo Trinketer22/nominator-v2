@@ -1,6 +1,5 @@
 import "@stdlib/lisp-lists"
 import "@acton/fmt"
-import "@acton/io"
 import "@acton/emulation/config"
 import "@acton/emulation/network"
 import "@acton/emulation/testing"
@@ -167,7 +166,7 @@ get fun `test owner should not be able to remove main validator`() {
 }
 
 get fun `test only owner should be able to remove validator`() {
-    val (pool, owner, notOwner, validator, _nominators) = setupPoolWithNominators(10);
+    val (pool, owner, notOwner, _validator, _nominators) = setupPoolWithNominators(10);
 
     val testValidator = setupRandomValidator(pool, owner.address);
     val balanceBefore = testing.getAccountBalance(pool.address);
@@ -396,7 +395,7 @@ get fun `test owner should be able to update global per validator parameters`() 
     );
     val newRefund = ton("100");
 
-    val res = pool.sendUpdateLimits(
+    val _res = pool.sendUpdateLimits(
         owner.address,
         DEFAULT_QUERY_ID,
         GlobalValidatorsLimit {
@@ -673,8 +672,8 @@ get fun `test owner should be able to update per-validator limit`(maxTon: coins,
 
 @test.fuzz(1)
 get fun `test owner should be able to update nominators whitelist`(testNm: address) {
-    var (share, validatorsSettings, nominatorsSettings) = defaultDeployParams();
-    val (elector, stakes, limits) = setupElector();
+    var (_share, _validatorsSettings, nominatorsSettings) = defaultDeployParams();
+    val (_elector, stakes, _limits) = setupElector();
     var whitelistNms: map<address, bool> = [];
     repeat (5) {
         val newAddr = address.fromWorkchainAndHash(BASECHAIN, random.uint256());
@@ -682,14 +681,14 @@ get fun `test owner should be able to update nominators whitelist`(testNm: addre
     }
 
     nominatorsSettings.whitelist = whitelistNms;
-    val (pool, owner, _notOwner, validator) = setupDeployedPool({
+    val (pool, owner, _notOwner, _validator) = setupDeployedPool({
         nominatorsSettings,
     });
 
-    var stateBefore = getAccountData(pool.address);
-    var balanceBefore = testing.getAccountBalance(pool.address);
+    val stateBefore = getAccountData(pool.address);
+    val balanceBefore = testing.getAccountBalance(pool.address);
     val testAmount = stakes.minStake * 5;
-    var depoReject = pool.sendTextComment(testNm, "d".beginParse(), { value: testAmount });
+    val depoReject = pool.sendTextComment(testNm, "d".beginParse(), { value: testAmount });
 
     expect(depoReject).toHaveRefund<TextComment>({
         to: testNm,
@@ -714,7 +713,7 @@ get fun `test owner should be able to update nominators whitelist`(testNm: addre
 }
 
 get fun `test only owner should be able to update nominators whitelist`() {
-    val (pool, owner, _notOwner, validator) = setupDeployedPool();
+    val (pool, _owner, _notOwner, _validator) = setupDeployedPool();
     val stateBefore = getAccountData(pool.address);
     val balanceBefore = testing.getAccountBalance(pool.address);
 
@@ -778,8 +777,8 @@ get fun `test owner should be able to withdraw it's share`(requestValue: coins, 
 }
 
 get fun `test only owner should be able to withdraw it's share`() {
-    val (elector, stakes, _limits) = setupElector();
-    val (pool, owner, notOwner, _validator, _nominators) = setupPoolWithNominators(20);
+    val (_elector, _stakes, _limits) = setupElector();
+    val (pool, _owner, notOwner, _validator, _nominators) = setupPoolWithNominators(20);
 
     val maxOwnerShare = getMaxOwnerShare(pool);
 
