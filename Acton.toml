@@ -31,6 +31,9 @@ types="contracts/Elector.types.tolk"
 width = 100
 ignore = []
 
+[lint]
+exclude = ["tests/*.tolk"]
+
 [scripts]
 deploy-emulation = "acton script scripts/deploy.tolk"
 deploy-testnet = "acton script scripts/deploy.tolk --net testnet"
