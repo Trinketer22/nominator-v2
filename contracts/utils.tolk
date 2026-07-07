@@ -1,4 +1,5 @@
 import "@contracts/types"
+const ROUNDS_DELAY = 3;
 
 @inline
 fun mulDivQuiet(multA: int, multB: int, divisor: int): int {

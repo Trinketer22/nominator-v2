@@ -80,11 +80,11 @@ fun Nominator.withdrawShare(
         }
 
         pendingWithdrawals.addPending(owner, shareCount, roundIndex);
-        // In two rounds should be guaranteed to withdraw, but
+        // In ROUNDS_DELAY rounds should be guaranteed to withdraw, but
         // if this doesn't happen for whatever reason,
         // nominator will be able to retry.
         // Something that is not possible in liquid pools
-        self.withdrawalIndex = roundIndex + 2;
+        self.withdrawalIndex = roundIndex + ROUNDS_DELAY;
         self.pendingWithdrawal += shareCount;
         val pendingRefund = createMessage({
             bounce: false,

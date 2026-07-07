@@ -564,7 +564,7 @@ fun assertDelayedOperation(
             rawDataBefore.pendingWithdrawal + rawDataBefore.share,
         );
         expect(rawDataAfter.share).toEqual(0);
-        expect(rawDataAfter.withdrawalIndex).toEqual(poolBefore.roundIndex + 2);
+        expect(rawDataAfter.withdrawalIndex).toEqual(poolBefore.roundIndex + ROUNDS_DELAY);
     } else {
         expect(poolAfter.pendingDeposits).toEqual(poolBefore.pendingDeposits + incomingValue);
         expect(rawDataAfter.pendingDeposit).toEqual(rawDataBefore.pendingDeposit + incomingValue);
