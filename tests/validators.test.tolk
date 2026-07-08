@@ -446,6 +446,7 @@ get fun `test pool should account for slashing reserves from owner share`() {
     val poolData = pool.getPoolData();
     val validators = lazy poolData.validators.load();
     expect(validators.activeSlots).toEqual(3);
+    expect(pool.getValidatorInfo(otherValidator).stakeable).toEqual(0);
     // But a fourth will fail
     assertNewStakeFailed(
         ErrorsPool.OwnerShareIsUndercapitalized,

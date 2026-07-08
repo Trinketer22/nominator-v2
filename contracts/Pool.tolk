@@ -1157,7 +1157,10 @@ get fun get_validator_info(address: address): GetValidatorInfo {
     if (stakeNotAvailable) {
         stakeable = 0;
     } else {
-        val (available, total, _) = storage.getStakableBalance(0, validators.stakeUsed);
+        val (available, total, pendingWithdrawalAmount) = storage.getStakableBalance(
+            0,
+            validators.stakeUsed,
+        );
         val stakeLimit = getValidatorLimit(
             validator.data.limit,
             total,
@@ -1166,6 +1169,13 @@ get fun get_validator_info(address: address): GetValidatorInfo {
 
         stakeable = min(stakeLimit, available);
         if (stakeable < validators.minTonPerValidator) {
+            stakeable = 0;
+        }
+        val ownerShare = total - storage.nominatorsAmount + pendingWithdrawalAmount;
+        if (
+            ownerShare <
+            getMaxPunishmentInt(validators.minTonPerValidator) * (validators.activeSlots + 1)
+        ) {
             stakeable = 0;
         }
     }
