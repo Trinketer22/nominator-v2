@@ -622,9 +622,11 @@ fun onInternalMessage(in: InMessage) {
                 0, ErrorsPool.RoundNotAllowed);
                 // + pendingWithdrawals because pending withdrawals are already part of nominatorsAmount
                 val ownerShare = totalBalance - storage.nominatorsAmount + estPendingWithdrawals;
+                validators.stakeUsed += stakeAmountSent;
+                validators.activeSlots += 1;
                 assert(ownerShare >=
                 getMaxPunishmentInt(validators.minTonPerValidator) *
-                (validators.activeSlots + 1), ErrorsPool.OwnerShareIsUndercapitalized);
+                validators.activeSlots, ErrorsPool.OwnerShareIsUndercapitalized);
                 val curTime = blockchain.now();
                 assert(curTime >
                 curVset.utimeUntil - electionsConf.startBefore, ErrorsPool.ElectionsNotStarted);
@@ -632,7 +634,6 @@ fun onInternalMessage(in: InMessage) {
                 curVset.utimeUntil - electionsConf.endBefore, ErrorsPool.ElectionsAlreadyEnded);
                 //}
 
-                validators.activeSlots += 1;
                 valData.data = {
                     usageState: valData.data.usageState | roundIndex,
                     roundParity: valData.data.roundParity,
@@ -645,7 +646,6 @@ fun onInternalMessage(in: InMessage) {
                 validators.updateValidatorByAddress(in.senderAddress, valData);
 
                 var curRound = validators.curRound.load();
-                validators.stakeUsed += stakeAmountSent;
                 curRound.used += stakeAmountSent;
                 val proxyAddress = valData.data.getProxyAddressByParity(roundIndex);
                 curRound
