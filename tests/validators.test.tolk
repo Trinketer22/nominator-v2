@@ -724,6 +724,54 @@ get fun `test get_validator_info should not project next round index, if round w
     expect(infoAfter.stakeable).toEqual(0);
 }
 
+get fun `test new stake should be able to rotate round if not closed`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    var elections = announceElections(elector);
+    val testStake = stakes.minStake * 2;
+
+    val poolBefore = pool.getPoolData();
+    assertPoolNewStake(validator, pool, elector, elections, testStake);
+    runElections(elector, stakes, limits);
+    elections = announceElections(elector);
+    expect(pool.getValidatorInfo(validator).stakeable).toBeGreater(0);
+    assertPoolNewStake(validator, pool, elector, elections, testStake);
+    val poolAfter = pool.getPoolData();
+
+    expect(poolAfter.roundIndex).toEqual(poolBefore.roundIndex + 1);
+}
+
+get fun `test new stake should reject if round closed during rotation`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    var elections = announceElections(elector);
+    val testStake = stakes.minStake * 2;
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        elections,
+        false,
+        testStake,
+    );
+
+    elections = announceElections(elector);
+    updateVsetHash();
+
+    assertNewStakeFailed(
+        ErrorsPool.RoundIsClosed,
+        validator,
+        pool,
+        elector.address,
+        elections,
+        testStake,
+    );
+}
+
 get fun `test validator should be able to fully close usage record for both rounds`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(40);

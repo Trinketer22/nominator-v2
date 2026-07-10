@@ -191,6 +191,8 @@ fun assertPoolNewStake(
     val poolBefore = pool.getPoolData();
 
     val signedBody = getSignedBody(elections);
+    val valInfoBefore = pool.getValidatorInfo(validator);
+    val expectedProxy = getProxy(pool.address, validator, valInfoBefore.roundIndex % 2 > 0);
     val res = pool.sendNewStake(
         validator,
         DEFAULT_QUERY_ID,
@@ -202,7 +204,6 @@ fun assertPoolNewStake(
     val validators = poolBefore.validators.load();
 
     val curRoundBefore = validators.curRound.load();
-    val expectedProxy = getProxy(pool.address, validator, poolBefore.roundIndex % 2 > 0);
     val newStakeOk = reflect.serializationPrefixOf<NewStakeOk>().0;
     val _stakeTx = res.findTransaction<NewStake>({ from: validator, to: pool.address });
     val refundTx = res.findTransaction({
@@ -226,9 +227,15 @@ fun assertPoolNewStake(
     val curRound = validatorsAfter.curRound.load();
     expect(validatorsAfter.activeSlots).toEqual(validators.activeSlots + 1);
     expect(validatorsAfter.stakeUsed).toEqual(validators.stakeUsed + stake - ton("1"));
-
-    expect(curRound.used).toEqual(curRoundBefore.used + stake - ton("1"));
-    expect(curRound.returned).toEqual(curRoundBefore.returned);
+    // If new stake rotated the rounds
+    if (valInfoBefore.rotated) {
+        expect(curRound.used).toEqual(stake - ton("1"));
+        expect(curRound.returned).toEqual(0);
+        expect(validatorsAfter.vsetHash).toNotEqual(validators.vsetHash);
+    } else {
+        expect(curRound.used).toEqual(curRoundBefore.used + stake - ton("1"));
+        expect(curRound.returned).toEqual(curRoundBefore.returned);
+    }
     val curStake = curRound.users.get(expectedProxy.address.getHash());
     expect(curStake.isFound).toBeTrue();
     val stakeData = curStake.loadValue();

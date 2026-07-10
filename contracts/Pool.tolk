@@ -565,11 +565,16 @@ fun onInternalMessage(in: InMessage) {
                 assert(in.valueCoins >= ton("1"), ErrorsPool.NotEnoughValueForNewStake);
 
                 var validators = lazy storage.validators.load();
-                assert(!storage.halted, ErrorsPool.PoolIsHalted);
                 var valData = validators.getValidatorByAddress(
                     in.senderAddress,
                     ErrorsPool.ValidatorNotFound,
                 )!;
+                storage.finalizeRound(validators.rotateRound(in.senderAddress, storage.roundIndex));
+                // practically halted check position here doesn't masterchain
+                // Can only halt if there were stakes in prev round
+                // And if there were stakes, it will only rotate in RecoverStakeOk
+                // Still, clearer to carry storage checks after the state update
+                assert(!storage.halted, ErrorsPool.PoolIsHalted);
 
                 val (
                     availableBalance,
