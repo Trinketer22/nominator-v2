@@ -684,6 +684,46 @@ get fun `test validator should be able to recover stake and rotate round`() {
     // And loop goes on
 }
 
+get fun `test get_validator_info should project next round index, if vset updated and round is not closed`() {
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    val prevHash = testing.getConfig().getParamRaw(CUR_VSET_IDX).hash();
+    val infoBefore = pool.getValidatorInfo(validator);
+    expect(infoBefore.rotated).toBeFalse();
+
+    var newSetHash = updateVsetHash();
+    expect(newSetHash).toNotEqual(prevHash);
+    val infoAfter = pool.getValidatorInfo(validator);
+    expect(infoAfter.roundIndex).toEqual(infoBefore.roundIndex + 1);
+    expect(infoAfter.rotated).toBeTrue();
+    // Since the round is rotated, we should get future stakeable value
+    expect(infoAfter.stakeable).toBeGreater(0);
+}
+
+get fun `test get_validator_info should not project next round index, if round will close`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    val infoBefore = pool.getValidatorInfo(validator);
+
+    updateVsetHash();
+    // Next round will close
+    val infoAfter = pool.getValidatorInfo(validator);
+    // So round index should not change
+    expect(infoAfter.roundIndex).toEqual(infoBefore.roundIndex);
+    // And stakeable amount should be 0
+    expect(infoAfter.stakeable).toEqual(0);
+}
+
 get fun `test validator should be able to fully close usage record for both rounds`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(40);

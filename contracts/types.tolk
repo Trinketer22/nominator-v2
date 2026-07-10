@@ -176,6 +176,8 @@ struct GetValidatorInfo {
     validator: Validator
     usage: ValidatorUsageRecords
     stakeable: coins
+    roundIndex: uint64
+    rotated: bool
 }
 
 struct ValidatorUsageStats {

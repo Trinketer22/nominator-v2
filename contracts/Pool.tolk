@@ -1146,10 +1146,15 @@ get fun get_nominator_data(nominatorAddress: int): GetNominatorData {
 
 get fun get_validator_info(address: address): GetValidatorInfo {
     val storage = lazy Storage.load();
-    val validators = storage.validators.load();
+    var validators = storage.validators.load();
     val validator = validators.getValidatorByAddress(address, ErrorsPool.ValidatorNotFound)!;
-    val roundMask = parityToMask(storage.roundIndex % 2 > 0);
-    var stakeNotAvailable = validator.data.isBanned || storage.roundClosed;
+    val rotationStatus = validators.rotateRound(address, storage.roundIndex);
+    var roundIndex = storage.roundIndex;
+    if (rotationStatus.roundRotated) {
+        roundIndex += 1;
+    }
+    val roundMask = parityToMask(roundIndex % 2 > 0);
+    var stakeNotAvailable = validator.data.isBanned || rotationStatus.roundIsClosed;
     stakeNotAvailable = stakeNotAvailable || ((roundMask & validator.data.usageState) > 0);
     stakeNotAvailable = stakeNotAvailable || ((roundMask & validator.data.roundParity as int) == 0);
 
@@ -1185,11 +1190,13 @@ get fun get_validator_info(address: address): GetValidatorInfo {
         usage: validator
             .data
             .allUsageRecords(
-                toBitIndex(storage.roundIndex),
+                toBitIndex(roundIndex),
                 validators.curRound.load(),
                 validators.prevRound.load(),
             ),
         stakeable,
+        roundIndex,
+        rotated: rotationStatus.roundRotated,
     };
 }
 
