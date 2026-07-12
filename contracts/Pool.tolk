@@ -44,29 +44,31 @@ type AllowedMessage =
     | PostInit
     | InitPoolMessage
 
-fun handleTextComment(comment: slice, sender: address, value: coins) {
+fun Storage.handleTextComment(mutate self, comment: slice, sender: address, value: coins) {
     val msg = AllowedComments.fromSlice(
         comment,
         { throwIfOpcodeDoesNotMatch: ErrorsPool.InvalidMessage },
     );
 
+    var validators = self.validators.load();
+    self.finalizeRound(validators.rotateRound(validators.mainValidatorAddress, self.roundIndex));
+    self.validators = validators.toCell();
+
     match (msg) {
         DepositMessage => {
-            var storage = lazy Storage.load();
-            assert(!storage.halted, ErrorsPool.PoolIsHalted);
-            var nominators = lazy storage.nominators.load();
-            assert(nominators.nmCount < storage.maxNominators, ErrorsPool.TooManyNominators);
+            assert(!self.halted, ErrorsPool.PoolIsHalted);
+            var nominators = lazy self.nominators.load();
+            assert(nominators.nmCount < self.maxNominators, ErrorsPool.TooManyNominators);
             val incommingValue = value - DEPOSIT_GAS; // calculateGasFee(BASECHAIN, DEPOSIT_GAS);
             assert(incommingValue >= nominators.minStake, ErrorsPool.NotEnoughGas);
             if (!nominators.nominatorsWhitelist.isEmpty()) {
                 assert(nominators.nominatorsWhitelist.exists(sender), ErrorsPool.DepositNotAllowed);
             }
-            val validators = lazy storage.validators.load();
             val prevRound = lazy validators.prevRound.load();
 
             val hasPrevUsage = !prevRound.users.isEmpty();
 
-            if (storage.roundClosed || hasPrevUsage) {
+            if (self.roundClosed || hasPrevUsage) {
                 var pendingDeposits = nominators.pendingDeposits == null
                     ? PendingOps { isWithdraw: false }
                     : nominators.pendingDeposits.load();
@@ -88,14 +90,14 @@ fun handleTextComment(comment: slice, sender: address, value: coins) {
                         );
                     nominators.nmCount += 1;
                 }
-                pendingDeposits.addPending(sender, incommingValue, storage.roundIndex);
+                pendingDeposits.addPending(sender, incommingValue, self.roundIndex);
                 nominators.pendingDeposits = pendingDeposits.toCell();
-                storage.pendingDeposits += incommingValue;
+                self.pendingDeposits += incommingValue;
             } else {
                 val nmShare = calcSharePrice(
                     incommingValue,
-                    storage.poolSupply,
-                    storage.nominatorsAmount,
+                    self.poolSupply,
+                    self.nominatorsAmount,
                 );
                 val newNominator: Nominator = {
                     tonAmount: incommingValue,
@@ -114,12 +116,12 @@ fun handleTextComment(comment: slice, sender: address, value: coins) {
                     nominators.nmCount += 1;
                 }
 
-                storage.poolSupply += nmShare;
-                storage.nominatorsAmount += incommingValue;
+                self.poolSupply += nmShare;
+                self.nominatorsAmount += incommingValue;
             }
 
-            storage.nominators = nominators.toCell();
-            storage.save();
+            self.nominators = nominators.toCell();
+            self.save();
 
             reserveGramsOnBalance(
                 incommingValue,
@@ -137,9 +139,8 @@ fun handleTextComment(comment: slice, sender: address, value: coins) {
             depoNotification.send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS);
         }
         WithdrawalMessage => {
-            var storage = lazy Storage.load();
-            assert(!storage.halted, ErrorsPool.PoolIsHalted);
-            var nominators = lazy storage.nominators.load();
+            assert(!self.halted, ErrorsPool.PoolIsHalted);
+            var nominators = lazy self.nominators.load();
             val nmLookup = nominators.poolNominators.deleteAndGetDeleted(sender);
             assert(nmLookup.isFound, ErrorsPool.DepositNotFound);
             var nominatorData = nmLookup.loadValue();
@@ -148,41 +149,39 @@ fun handleTextComment(comment: slice, sender: address, value: coins) {
             val withdrawnShares = nominatorData.share;
             val shareValue = calcSharePrice(
                 withdrawnShares,
-                storage.nominatorsAmount,
-                storage.poolSupply,
+                self.nominatorsAmount,
+                self.poolSupply,
             );
             val pending = nominatorData.withdrawShare(
                 sender,
                 nominatorData.share,
                 shareValue,
-                storage.roundClosed,
-                storage.roundIndex,
+                self.roundClosed,
+                self.roundIndex,
                 value,
                 nominators.pendingWithdrawals,
             );
 
             if (pending == null) {
                 nominators.nmCount -= 1;
-                storage.poolSupply -= withdrawnShares;
-                storage.nominatorsAmount -= shareValue;
+                self.poolSupply -= withdrawnShares;
+                self.nominatorsAmount -= shareValue;
             } else {
-                storage.pendingWithdrawals += withdrawnShares;
+                self.pendingWithdrawals += withdrawnShares;
                 nominators.pendingWithdrawals = pending;
                 nominators.poolNominators.set(sender, nominatorData);
             }
 
-            storage.nominators = nominators.toCell();
-            storage.save();
+            self.nominators = nominators.toCell();
+            self.save();
         }
         WithdrawalReward => {
-            var storage = lazy Storage.load();
-
-            var nominators = lazy storage.nominators.load();
+            var nominators = lazy self.nominators.load();
             var nmData = nominators.poolNominators.mustGet(sender, ErrorsPool.DepositNotFound);
             val sharePrice = calcSharePrice(
                 nmData.share,
-                storage.nominatorsAmount,
-                storage.poolSupply,
+                self.nominatorsAmount,
+                self.poolSupply,
             );
 
             val rewardAmount = sharePrice - nmData.tonAmount;
@@ -194,8 +193,8 @@ fun handleTextComment(comment: slice, sender: address, value: coins) {
             // Which is ok, is it?
             val shareDelta = calcShareCount(
                 rewardAmount,
-                storage.poolSupply,
-                storage.nominatorsAmount,
+                self.poolSupply,
+                self.nominatorsAmount,
             );
 
             // Very important, that nominator has to burn at least 1 share, otherwise rounding effects
@@ -206,23 +205,23 @@ fun handleTextComment(comment: slice, sender: address, value: coins) {
                 sender,
                 shareDelta,
                 rewardAmount,
-                storage.roundClosed,
-                storage.roundIndex,
+                self.roundClosed,
+                self.roundIndex,
                 value,
                 nominators.pendingWithdrawals,
             );
 
             if (pending == null) {
-                storage.poolSupply -= shareDelta;
-                storage.nominatorsAmount -= rewardAmount;
+                self.poolSupply -= shareDelta;
+                self.nominatorsAmount -= rewardAmount;
             } else {
-                storage.pendingWithdrawals += shareDelta;
+                self.pendingWithdrawals += shareDelta;
                 nominators.pendingWithdrawals = pending;
             }
 
             nominators.poolNominators.set(sender, nmData);
-            storage.nominators = nominators.toCell();
-            storage.save();
+            self.nominators = nominators.toCell();
+            self.save();
         }
     }
 }
@@ -451,7 +450,7 @@ fun onInternalMessage(in: InMessage) {
         }
         TextComment => {
             try {
-                handleTextComment(msg.comment, in.senderAddress, in.valueCoins);
+                storage.handleTextComment(msg.comment, in.senderAddress, in.valueCoins);
             } catch (e) {
                 refundError(
                     in.senderAddress,

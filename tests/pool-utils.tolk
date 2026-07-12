@@ -505,13 +505,14 @@ fun assertDelayedOperation(
         // println(refundTx.loadBody<RefundMessage>());
     }
 
+    val poolAfter = pool.getPoolData();
     val newPayoutState = AutoDeployAddress {
         stateInit: ContractState {
             data: ItemStorageNotInitialized {
                 data: StaticData {
                     pool: pool.address,
                     index: expectedIndex,
-                    roundIndex: poolBefore.roundIndex,
+                    roundIndex: poolAfter.roundIndex,
                     isWithdrawal,
                     next: null,
                     prev: null,
@@ -543,7 +544,6 @@ fun assertDelayedOperation(
     }
     // println(res);
 
-    val poolAfter = pool.getPoolData();
     val nmAfter = poolAfter.nominators.load();
 
     var opsAfter: Cell<PendingOps>? = null;
@@ -571,7 +571,7 @@ fun assertDelayedOperation(
             rawDataBefore.pendingWithdrawal + rawDataBefore.share,
         );
         expect(rawDataAfter.share).toEqual(0);
-        expect(rawDataAfter.withdrawalIndex).toEqual(poolBefore.roundIndex + ROUNDS_DELAY);
+        expect(rawDataAfter.withdrawalIndex).toEqual(poolAfter.roundIndex + ROUNDS_DELAY);
     } else {
         expect(poolAfter.pendingDeposits).toEqual(poolBefore.pendingDeposits + incomingValue);
         expect(rawDataAfter.pendingDeposit).toEqual(rawDataBefore.pendingDeposit + incomingValue);
@@ -604,11 +604,12 @@ fun asssertSimpleWithdawal(pool: Pool, nm: address) {
     val balanceAfter = testing.getAccountBalance(pool.address);
 
     val reqTx = res.findTransaction({ to: pool.address, from: nm })!;
+    val lumpPrice = testing.getConfig().getMsgForwardPrices(BASECHAIN).lumpPrice;
+    val fwdFees = reqTx.outmsgCnt == 1 ? lumpPrice as coins : (lumpPrice * 2) as coins;
     expect(reqTx != null).toBeTrue();
 
     val withdrawalCompute = getTxComputePh(reqTx);
     val withdrawalStorage = getTxStorage(reqTx);
-    val lumpPrice = testing.getConfig().getMsgForwardPrices(BASECHAIN).lumpPrice;
 
     val poolAfter = pool.getPoolData();
     val nmRawAfter = poolAfter.nominators.load();
@@ -622,7 +623,7 @@ fun asssertSimpleWithdawal(pool: Pool, nm: address) {
     expect(res).toHaveTx({
         from: pool.address,
         to: nm,
-        value: testValue + nmData.amount - withdrawalCompute.gasFees - lumpPrice,
+        value: testValue + nmData.amount - withdrawalCompute.gasFees - fwdFees,
     });
 }
 

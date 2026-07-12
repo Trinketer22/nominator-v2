@@ -750,6 +750,121 @@ get fun `test pool should halt if withdrawals can't be processed`() {
     assertPoolNewStake(validator, pool, elector, elections, stakes.minStake * 2);
 }
 
+get fun `test deposit should be able to rotate round if vset is changed`() {
+    val (_elector, stakes, _limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+    val testAddr = address.fromWorkchainAndHash(BASECHAIN, random.uint256());
+    val stake = stakes.minStake * 2;
+
+    val poolBefore = pool.getPoolData();
+    val validators = poolBefore.validators.load();
+    var newVset = updateVsetHash();
+
+    assertPoolDepositInstant(pool, testAddr, stake);
+
+    val poolAfter = pool.getPoolData();
+    val validatorsAfter = poolAfter.validators.load();
+    expect(validatorsAfter.vsetHash).toNotEqual(validators.vsetHash);
+    expect(validatorsAfter.vsetHash).toEqual(newVset >> 128);
+    val prevRoundAfter = validatorsAfter.prevRound.load();
+    val curRoundAfter = validatorsAfter.curRound.load();
+    val curRoundBefore = validators.curRound.load();
+    expect(prevRoundAfter.used).toEqual(curRoundBefore.used);
+    expect(prevRoundAfter.returned).toEqual(curRoundBefore.returned);
+    expect(prevRoundAfter.roundIndex).toEqual(curRoundBefore.roundIndex);
+    expect(curRoundAfter.users.isEmpty()).toBeTrue();
+    expect(curRoundAfter.used).toEqual(0);
+    expect(curRoundAfter.returned).toEqual(0);
+    expect(poolAfter.roundIndex).toEqual(poolBefore.roundIndex + 1);
+}
+
+get fun `test deposit should go pending and rotate round if vset is changed and current round has stakes`() {
+    val (elector, stakes, _limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+    val testAddr = address.fromWorkchainAndHash(BASECHAIN, random.uint256());
+    val stake = stakes.minStake * 2;
+
+    val elections = announceElections(elector);
+    assertPoolNewStake(validator, pool, elector, elections, stake);
+
+    val poolBefore = pool.getPoolData();
+    val validators = poolBefore.validators.load();
+    var newVset = updateVsetHash();
+
+    assertDelayedOperation(pool, testAddr, false, stake);
+
+    val poolAfter = pool.getPoolData();
+    val validatorsAfter = poolAfter.validators.load();
+    expect(validatorsAfter.vsetHash).toNotEqual(validators.vsetHash);
+    expect(validatorsAfter.vsetHash).toEqual(newVset >> 128);
+    val prevRoundAfter = validatorsAfter.prevRound.load();
+    val curRoundAfter = validatorsAfter.curRound.load();
+    val curRoundBefore = validators.curRound.load();
+    expect(prevRoundAfter.used).toEqual(curRoundBefore.used);
+    expect(prevRoundAfter.returned).toEqual(curRoundBefore.returned);
+    expect(prevRoundAfter.roundIndex).toEqual(curRoundBefore.roundIndex);
+    expect(curRoundAfter.users.isEmpty()).toBeTrue();
+    expect(curRoundAfter.used).toEqual(0);
+    expect(curRoundAfter.returned).toEqual(0);
+    expect(poolAfter.roundIndex).toEqual(poolBefore.roundIndex + 1);
+}
+
+get fun `test withdrawal should be able to rotate round if vset is changed`() {
+    val (elector, stakes, _limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(10);
+    val stake = stakes.minStake * 2;
+    val elections = announceElections(elector);
+    assertPoolNewStake(validator, pool, elector, elections, stake);
+
+    val poolBefore = pool.getPoolData();
+    val validators = poolBefore.validators.load();
+    var newVset = updateVsetHash();
+
+    val testNm = nominators.get(0);
+    asssertSimpleWithdawal(pool, testNm);
+
+    val poolAfter = pool.getPoolData();
+    val validatorsAfter = poolAfter.validators.load();
+    expect(validatorsAfter.vsetHash).toNotEqual(validators.vsetHash);
+    expect(validatorsAfter.vsetHash).toEqual(newVset >> 128);
+    val prevRoundAfter = validatorsAfter.prevRound.load();
+    val curRoundAfter = validatorsAfter.curRound.load();
+    val curRoundBefore = validators.curRound.load();
+    expect(prevRoundAfter.used).toEqual(curRoundBefore.used);
+    expect(prevRoundAfter.returned).toEqual(curRoundBefore.returned);
+    expect(prevRoundAfter.roundIndex).toEqual(curRoundBefore.roundIndex);
+    expect(curRoundAfter.users.isEmpty()).toBeTrue();
+    expect(curRoundAfter.used).toEqual(0);
+    expect(curRoundAfter.returned).toEqual(0);
+    expect(poolAfter.roundIndex).toEqual(poolBefore.roundIndex + 1);
+}
+
+get fun `test if round is about to close after rotation, withdrawal has to rotate round and go pending`() {
+    val (elector, stakes, _limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(20);
+    val stake = stakes.minStake * 2;
+
+    val testNm = nominators.get(random.range(19));
+
+    var elections = announceElections(elector);
+    assertPoolNewStake(validator, pool, elector, elections, stake);
+    updateVsetHash();
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+
+    elections = announceElections(elector);
+    assertPoolNewStake(validator, pool, elector, elections, stake);
+
+    updateVsetHash();
+    val poolBefore = pool.getPoolData();
+    assertDelayedOperation(pool, testNm, true);
+
+    val poolAfter = pool.getPoolData();
+
+    expect(poolBefore.roundClosed).toBeFalse();
+    expect(poolAfter.roundClosed).toBeTrue();
+    expect(poolAfter.roundIndex).toEqual(poolBefore.roundIndex);
+}
+
 get fun `test in closed round, withdraw should be carried in pending mode and be fullfilled at the end of the round`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
