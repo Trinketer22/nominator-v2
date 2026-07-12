@@ -447,6 +447,48 @@ get fun `test reward should be claimable in pending mode`() {
     expect(nmAfter.withdrawFound).toBeFalse();
 }
 
+get fun `test reward withdrawal should be rejected when sender has no deposit`() {
+    val (pool, _owner, _notOwner, _validator) = setupDeployedPool();
+    val stranger = testing.treasury("Stranger");
+    val stateBefore = getAccountData(pool.address);
+    val res = pool.sendTextComment(stranger.address, "r".beginParse(), { value: DEFAULT_MSG_VALUE });
+    expect(
+        res,
+    ).toHaveRefund<TextComment>({ from: pool.address, to: stranger.address, error: ErrorsPool.DepositNotFound, previousState: stateBefore });
+}
+
+get fun `test reward withdrawal should be rejected when no profit has been accrued`() {
+    val (pool, _owner, _notOwner, _validator) = setupDeployedPool();
+    val testNm = testing.treasury("TestNominator");
+    val depo = pool.getNominatorMinimalStake().minExpectedValue;
+    assertPoolDepositInstant(pool, testNm.address, depo);
+    val stateBefore = getAccountData(pool.address);
+    val res = pool.sendTextComment(testNm.address, "r".beginParse(), { value: DEFAULT_MSG_VALUE });
+    expect(
+        res,
+    ).toHaveRefund<TextComment>({ from: pool.address, to: testNm.address, error: ErrorsPool.RewardIsBelowMinimal, previousState: stateBefore });
+}
+
+get fun `test reward withdrawal should be rejected when share delta is zero`() {
+    val customNmSettings = NominatorsSettings {
+        maxNominators: 1023,
+        minStake: ton("1000"),
+        minWithdrawableRewards: 0,
+        whitelist: [],
+    };
+    val (pool, _owner, _notOwner, _validator) = setupDeployedPool({
+        nominatorsSettings: customNmSettings,
+    });
+    val testNm = testing.treasury("TestNominator");
+    val depo = pool.getNominatorMinimalStake().minExpectedValue;
+    assertPoolDepositInstant(pool, testNm.address, depo);
+    val stateBefore = getAccountData(pool.address);
+    val res = pool.sendTextComment(testNm.address, "r".beginParse(), { value: DEFAULT_MSG_VALUE });
+    expect(
+        res,
+    ).toHaveRefund<TextComment>({ from: pool.address, to: testNm.address, error: ErrorsPool.NothingToWithdraw, previousState: stateBefore });
+}
+
 get fun `test if validator refund amount is clamped by maxRefundAmount in profit calculation`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(40);
@@ -642,7 +684,7 @@ get fun `test in open round, if pool doesn't have enough balance to withdraw, it
 get fun `test pool should halt if withdrawals can't be processed`() {
     val (elector, stakes, limits) = setupElector();
 
-    var (pool, _owner, _notOwner, validator) = setupDeployedPool();
+    var (pool, owner, _notOwner, validator) = setupDeployedPool();
     val fatNm = testing.treasury("FatCat");
     val simpleFolk = testing.treasury("peasant");
     var lagreDepo = ton("100000");
@@ -717,6 +759,18 @@ get fun `test pool should halt if withdrawals can't be processed`() {
     expect(
         res,
     ).toHaveRefund<TextComment>({ from: pool.address, to: depositor.address, error: ErrorsPool.PoolIsHalted, previousState: stateBefore });
+
+    // And no one should be able to collect rewards either
+    res = pool.sendTextComment(simpleFolk.address, "r".beginParse(), { value: ton("1") });
+    expect(
+        res,
+    ).toHaveRefund<TextComment>({ from: pool.address, to: simpleFolk.address, error: ErrorsPool.PoolIsHalted, previousState: stateBefore });
+
+    // And owner shouldn't be able to withdraw either
+    res = pool.sendOwnerWithdrawal(owner.address, DEFAULT_QUERY_ID, ton("1"), { value: ton("1") });
+    expect(
+        res,
+    ).toHaveRefund<OwnerWithdrawal>({ from: pool.address, to: owner.address, error: ErrorsPool.PoolIsHalted, previousState: stateBefore });
 
     // Elections are going without pool taking part
     elections = announceElections(elector);

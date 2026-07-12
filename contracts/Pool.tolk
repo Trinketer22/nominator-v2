@@ -50,13 +50,14 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
         { throwIfOpcodeDoesNotMatch: ErrorsPool.InvalidMessage },
     );
 
+    assert(!self.halted, ErrorsPool.PoolIsHalted);
+
     var validators = self.validators.load();
     self.finalizeRound(validators.rotateRound(validators.mainValidatorAddress, self.roundIndex));
     self.validators = validators.toCell();
 
     match (msg) {
         DepositMessage => {
-            assert(!self.halted, ErrorsPool.PoolIsHalted);
             var nominators = lazy self.nominators.load();
             assert(nominators.nmCount < self.maxNominators, ErrorsPool.TooManyNominators);
             val incommingValue = value - DEPOSIT_GAS; // calculateGasFee(BASECHAIN, DEPOSIT_GAS);
@@ -139,7 +140,6 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
             depoNotification.send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS);
         }
         WithdrawalMessage => {
-            assert(!self.halted, ErrorsPool.PoolIsHalted);
             var nominators = lazy self.nominators.load();
             val nmLookup = nominators.poolNominators.deleteAndGetDeleted(sender);
             assert(nmLookup.isFound, ErrorsPool.DepositNotFound);
