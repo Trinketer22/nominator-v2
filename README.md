@@ -47,7 +47,7 @@ The pool itself lives in the **basechain** (workchain 0) for lower fees, but val
 - Round parity (odd/even) allows a validator to have two proxies, enabling staggered recovery/staking windows.
 
 ### 5. Halt-on-Overload
-If processing pending deposits/withdrawals exhausts available gas or balance in a single transaction, the pool can enter a **halted** state, preventing new validator stakes until the backlog is cleared.
+If processing pending deposits/withdrawals exhausts available gas or balance in a single transaction, the pool can enter a **halted** state, preventing new validator stakes and owner withdrawals until the backlog is cleared. Nomination deposits and full withdrawals are also blocked while halted.
 
 ---
 
@@ -264,7 +264,7 @@ Once the **last** usage record in `prevRound` is recovered (i.e., `roundDone`), 
 Whenever a clean rotation occurs (either via `UpdateVset` or as the last recovery in a closed round), the pool checks for pending nominator deposits and withdrawals:
 - If `pendingDeposits > 0` or `pendingWithdrawals > 0`, the pool loads the `NominatorsData` and processes them.
 - This can result in `halted = true` if the combined gas cost would exceed the transaction budget.
-- While halted, new validator stakes are blocked but recovery can still proceed.
+- While halted, new validator stakes, nominator deposits/withdrawals, and owner withdrawals are blocked, but stake recovery can still proceed.
 
 ---
 
@@ -326,7 +326,7 @@ Because proxy addresses are derived deterministically from `(validator_address, 
 
 ### Nominator Operations (Text Comments)
 
-Nominators interact with the pool by sending text-comment messages. They can deposit TON, withdraw their entire position, or withdraw only accrued rewards while leaving the principal stake in the pool.
+Nominators interact with the pool by sending text-comment messages. Every deposit/withdrawal triggers an **implicit vset rotation check** (`UpdateVset`) before the request is processed, so nominators' actions can also advance round transitions and clear pending queues. Validators do not need to send a separate `UpdateVset` solely for this purpose. Nominators can deposit TON, withdraw their entire position, or withdraw only accrued rewards while leaving the principal stake in the pool.
 
 | Comment | Action |
 |---------|--------|
@@ -338,7 +338,7 @@ Nominators interact with the pool by sending text-comment messages. They can dep
 
 | Message | Sender | Effect |
 |---------|--------|--------|
-| `NewStake` | Validator (masterchain) | Borrows pool TON and forwards it (via proxy) to the elector. Records usage in the current round. |
+| `NewStake` | Validator (masterchain) | Uses pool TON and forwards it (via proxy) to the elector. Records usage in the current round. |
 | `RecoverStakeCompat` | Validator (masterchain) | Requests stake recovery through the validator's proxy. Enforces timing and rotation checks. |
 | `RecoverStakeUnrestricted` | Any | Allows a third party to pay for recovering a validator's stake (useful if validator is low on gas). |
 
@@ -351,7 +351,7 @@ Nominators interact with the pool by sending text-comment messages. They can dep
 | `RemoveValidator` | Bans a validator from new stakes. Record is kept until stake recovery is complete. |
 | `UpdateLimits` | Adjusts global or per-validator staking/nominator limits. |
 | `UpdateNominatorsWhitelist` | Replaces the nominator whitelist. If the whitelist is non-empty, only listed addresses may deposit. |
-| `OwnerWithdrawal` | Withdraws the owner's share of profits, provided free balance exists. |
+| `OwnerWithdrawal` | Withdraws the owner's share of profits, provided free balance exists and the pool is not halted. |
 | `AddFunds` | Accepts bare TON to increase the owner's effective share. |
 
 ---
@@ -383,7 +383,7 @@ The pool exposes several getters for off-chain queries:
 | `owner()` | `address` | Pool owner address. |
 | `get_pool_data()` | `Storage` | Full pool state (owner, shares, round status, validator data, nominators, etc.). |
 | `get_nominator_data(nominatorAddress: int)` | `GetNominatorData` | Nominator info from a 256-bit address hash. Searches basechain (`wc=0`) and masterchain (`wc=-1`) for compatibility. |
-| `get_validator_info(address: address)` | `GetValidatorInfo` | Validator data, usage records, and the **current stakeable amount** — the TON the validator is allowed to use in the current round given available balance, limits, and round state. |
+| `get_validator_info(address: address)` | `GetValidatorInfo` | Validator data, usage records for both rounds, and a **projected `roundIndex` and `rotated` flag** after running the same vset rotation check as `UpdateVset`. It also returns the **current `stakeable` amount** — the TON the validator is allowed to use in the current round — computed by applying the exact same validation checks as `NewStake` (round state, parity, usage, limits, balance, owner undercapitalization, etc). The goal is to let off-chain tools know whether a validator is actually eligible to stake and how much, without attempting a real transaction. Because this getter evaluates `rotateRound`, calling it may advance the round state in the same way a real `UpdateVset` message would. |
 | `get_validator_info_mtc(workchain: int, hash: int)` | `GetValidatorInfo` | Same as `get_validator_info`, but accepts workchain + hash for masterchain tooling compatibility. |
 | `get_proxy_address(validator: address)` | `GetProxyAddressResult` | Even/odd proxy addresses for a given validator. |
 | `get_limits_per_validator()` | `(coins, coins, coins)` | `(minTonPerValidator, maxTonPerValidator, maxRefundAmount)`. |
