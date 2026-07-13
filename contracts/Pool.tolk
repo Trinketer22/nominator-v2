@@ -769,6 +769,7 @@ fun onInternalMessage(in: InMessage) {
                 usageRec.rotation.checkRecoverRequirements(usageRec.heldFor);
                 //}
 
+                validators.updateValidatorByAddress(in.senderAddress, validatorData);
                 storage.validators = validators.toCell();
                 storage.save();
 
