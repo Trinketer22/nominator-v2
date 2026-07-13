@@ -725,8 +725,9 @@ fun onInternalMessage(in: InMessage) {
         }
         RecoverStakeCompat => {
             try {
-                val validators = lazy storage.validators.load();
+                var validators = lazy storage.validators.load();
 
+                storage.finalizeRound(validators.rotateRound(in.senderAddress, storage.roundIndex));
                 // It's ok for roundIndex to go negative, since -1 has LSB set to true.
                 var roundBitIdx = toBitIndex(storage.roundIndex - 1);
                 var validatorData = validators.getValidatorByAddress(
@@ -804,11 +805,13 @@ fun onInternalMessage(in: InMessage) {
             }
         }
         RecoverStakeUnrestricted => {
-            val validators = lazy storage.validators.load();
+            var validators = lazy storage.validators.load();
             val valData = validators.getValidatorByAddress(
                 msg.validator,
                 ErrorsPool.ValidatorNotFound,
             )!;
+
+            storage.finalizeRound(validators.rotateRound(in.senderAddress, storage.roundIndex));
 
             // If there is no usage record, there is no point of sending recovery
             assert(valData.data.usageState > 0, ErrorsPool.UsageRecordNotFound);
@@ -831,6 +834,9 @@ fun onInternalMessage(in: InMessage) {
             msg.amount;
 
             assert(in.valueCoins >= minFee, ErrorsPool.NotEnoughGas);
+
+            storage.validators = validators.toCell();
+            storage.save();
 
             reserveGramsOnBalance(0, RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE);
             val recoverStakeCompat = createMessage({
