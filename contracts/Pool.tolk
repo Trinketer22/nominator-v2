@@ -482,19 +482,21 @@ fun onInternalMessage(in: InMessage) {
                 }
             }
             */
-            reserveGramsOnBalance(
-                REFUND_THRESHOLD,
-                RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_AT_MOST,
-            );
-            refundError(
-                in.senderAddress,
-                {
-                    op: opcode<UpdateVset>(),
-                    errorCode: 0,
-                    queryId: msg.queryId,
-                },
-                SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS,
-            );
+            if (in.senderAddress != contract.getAddress()) {
+                reserveGramsOnBalance(
+                    REFUND_THRESHOLD,
+                    RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_AT_MOST,
+                );
+                refundError(
+                    in.senderAddress,
+                    {
+                        op: opcode<UpdateVset>(),
+                        errorCode: 0,
+                        queryId: msg.queryId,
+                    },
+                    SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS,
+                );
+            }
 
             storage.validators = validators.toCell();
 
@@ -931,26 +933,14 @@ fun onInternalMessage(in: InMessage) {
                 }
 
                 if (roundDone) {
-                    val rotationRes = validators.rotateRound(
-                        stakeReturned.validator,
-                        storage.roundIndex,
-                    );
-                    storage.finalizeRound(rotationRes);
-                    /*
-                    if(rotationRes.rotated && !rotationRes.closed) {
-                        if((storage.pendingDeposits | storage.pendingWithdrawals) > 0){
-                            var nominators = lazy storage.nominators.load();
-                            val status = nominators.processPending(contract.getOriginalBalance() -
-                            POOL_MIN_STORAGE, storage.poolSupply, storage.nominatorsAmount);
-                            storage.halted = status.halted;
-                            if(!status.halted) {
-                                storage.nominators = nominators.toCell();
-                            }
-                        }
-                        storage.roundIndex += 1;
-                    }
-                    storage.roundClosed = rotationRes.closed;
-                    */
+                    // Instead of rotating inplace, do it by chaining txs
+                    val rotateMsg = createMessage<UpdateVset>({
+                        bounce: false,
+                        value: ton("1"),
+                        dest: contract.getAddress(),
+                        body: UpdateVset { queryId: storage.roundIndex },
+                    });
+                    rotateMsg.send(SEND_MODE_REGULAR | SEND_MODE_IGNORE_ERRORS);
                 }
                 storage.validators = validators.toCell();
             }

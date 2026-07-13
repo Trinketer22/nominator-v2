@@ -140,6 +140,14 @@ fun NominatorsData.processPending(
     var withdrawn: coins = 0;
     var deposited: coins = 0;
 
+    // If there is remotely not enough balance to fail the chain start - halt
+    if (availableBalance < PAYOUT_ITEM_BALANCE * 3) {
+        return {
+            withdrawn,
+            deposited,
+            halted: true,
+        };
+    }
     if (self.pendingWithdrawals != null) {
         val withdrawals = self.pendingWithdrawals.load();
         (withdrawn, halted) = withdrawals.process(availableBalance, supply, total);
@@ -190,15 +198,8 @@ fun PendingOps.process(self, availableBalance: coins, supply: coins, total: coin
                     pendingShare: supply,
                 },
             },
-            // There is no way for it to fail under this conditions,
-            // however if i am wrong, it is better for it to skip the action,
-            // but keep the profits record, since this is most often triggered
-            // by the RecoverStakeOk.
-            //
-            // Deposits/withdrawal is an retryable action, even though it is unpleasent
-            // Especially for the depositors
         });
-        burnMessage.send(SEND_MODE_REGULAR | SEND_MODE_IGNORE_ERRORS);
+        burnMessage.send(SEND_MODE_REGULAR);
     }
     return (processedAmount, false);
 }
