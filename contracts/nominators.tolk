@@ -64,7 +64,7 @@ fun Nominator.withdrawShare(
     self.share -= shareCount;
 
     // 0 case can only be withdrawn in pending mode again
-    if (roundClosed || availableBalance < shareValue || shareValue == 0) {
+    if (roundClosed || availableBalance < shareValue || shareCount == 0) {
         assert(msgValue >= WITHDRAWAL_GAS, ErrorsPool.NotEnoughGas);
         // Means all the expenses are out of incommingValue
         reserveGramsOnBalance(
@@ -79,7 +79,11 @@ fun Nominator.withdrawShare(
             pendingWithdrawals = pending.load();
         }
 
-        pendingWithdrawals.addPending(owner, shareCount, roundIndex);
+        var newPending = shareCount;
+        if (shareCount == 0) {
+            newPending = self.pendingWithdrawal;
+        }
+        pendingWithdrawals.addPending(owner, newPending, roundIndex);
         // In ROUNDS_DELAY rounds should be guaranteed to withdraw, but
         // if this doesn't happen for whatever reason,
         // nominator will be able to retry.

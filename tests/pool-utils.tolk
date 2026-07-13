@@ -468,6 +468,9 @@ fun assertDelayedOperation(
             tonAmount = WITHDRAWAL_GAS;
         }
         operationDelta = rawDataBefore.share;
+        if (operationDelta == 0) {
+            operationDelta = rawDataBefore.pendingWithdrawal;
+        }
         incomingValue = tonAmount;
         comment = "w".beginParse();
         resultName = "Withdrawal request delayed";
@@ -577,7 +580,7 @@ fun assertDelayedOperation(
         expect(rawDataAfter.pendingDeposit).toEqual(rawDataBefore.pendingDeposit + incomingValue);
     }
 
-    return (newPayout, rawDataBefore.share);
+    return (newPayout, operationDelta);
 }
 
 fun asssertSimpleWithdawal(pool: Pool, nm: address) {

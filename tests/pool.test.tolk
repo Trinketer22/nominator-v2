@@ -6,6 +6,7 @@ import "@acton/emulation/network"
 import "@acton/emulation/testing"
 import "@acton/testing/expect"
 import "@acton/testing/fuzz"
+import "@acton/tlb/maybe"
 import "@acton/types/message"
 import "@acton/types/transaction"
 import "@contracts/errors"
@@ -13,6 +14,7 @@ import "@contracts/errors"
 import "@contracts/fees"
 import "@contracts/messages"
 import "@contracts/types"
+import "@contracts/utils"
 import "@tests/deploy-utils"
 import "@tests/elector-utils"
 import "@tests/matchers"
@@ -1020,6 +1022,119 @@ get fun `test in closed round, withdraw should be carried in pending mode and be
     expect(poolAfter.nominatorsAmount).toEqual(
         poolBefore.nominatorsAmount + nominatorsRecoveryProfit - totalWithdrwn,
     );
+}
+
+get fun `test pending withdrawal should be retryable in three rounds`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
+
+    var testNominators = nominators;
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+
+    var testNominator = testNominators.popHead();
+    val poolBefore = pool.getPoolData();
+
+    var (testItem, sharesBurned) = assertDelayedOperation(pool, testNominator, true);
+
+    // Hash doesn't matter since we don't expect to unfreeze
+    val frozenItem = TlbAccountStateFrozen { stateHash: random.uint256() };
+    testing.setShardAccount(
+        testItem.address,
+        TlbShardAccount {
+            account: (TlbAccountInfo {
+                addr: testItem.address,
+                storage: TlbAccountStorage {
+                    lastTransLt: 0,
+                    balance: TlbCurrencyCollection {
+                        grams: 0,
+                        other: [],
+                    },
+                    state: frozenItem,
+                },
+                storageStat: TlbStorageInfo {
+                    used: TlbStorageUsed {
+                        cells: 0,
+                        bits: 0,
+                    },
+                    storageExtra: TlbStorageExtraNone {},
+                    lastPaid: 0,
+                    duePayment: TlbNone {},
+                },
+            } as TlbAccount).toCell(),
+            lastTransHash: 0,
+            lastTransLt: 0,
+        },
+    );
+
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+    expect(pool.getPoolData().roundClosed).toBeTrue();
+    var res = waitAndRecoverStake(pool, validator, elector.address);
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+    expect(res).toNotHaveTx<WithdrawSuccess>({ from: pool.address, to: testNominator });
+
+    var poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(sharesBurned);
+    expect(poolAfter.roundClosed).toBeFalse();
+    val nominatorsAfter = poolAfter.nominators.load();
+    expect(nominatorsAfter.pendingWithdrawals).toBeNull();
+    val nmData = nominatorsAfter.poolNominators.mustGet(testNominator, 42);
+    expect(nmData.pendingWithdrawal).toEqual(sharesBurned);
+    // One round has rotated already.
+    expect(nmData.withdrawalIndex).toEqual(poolBefore.roundIndex + ROUNDS_DELAY);
+
+    res = pool.sendTextComment(testNominator, "w".beginParse(), { value: WITHDRAWAL_GAS });
+    expect(res).toHaveRefund<TextComment>({
+        to: testNominator,
+        from: pool.address,
+        error: ErrorsPool.WithdrawalAlreadyRequested,
+    });
+
+    updateVsetHash(elector.address);
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+
+    res = waitAndRecoverStake(pool, validator, elector.address);
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+    res = pool.sendTextComment(testNominator, "w".beginParse(), { value: WITHDRAWAL_GAS });
+    expect(res).toHaveRefund<TextComment>({
+        to: testNominator,
+        from: pool.address,
+        error: ErrorsPool.WithdrawalAlreadyRequested,
+    });
+
+    updateVsetHash(elector.address);
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+
+    poolAfter = pool.getPoolData();
+    expect(poolAfter.roundIndex).toEqual(nmData.withdrawalIndex);
+    var (newItem, sharesWithdrawn) = assertDelayedOperation(pool, testNominator, true);
+    expect(sharesWithdrawn).toEqual(sharesBurned);
+
+    updateVsetHash(elector.address);
+    res = pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+    val withdrawTx = res.findTransaction<WithdrawSuccess>({ from: pool.address, to: testNominator });
+    expect(withdrawTx).toBeNotNull();
+
+    expect(
+        getInternalMessageValue(withdrawTx!.loadInMsg<WithdrawSuccess>().info).grams,
+    ).toBeGreaterOrEqual(nmData.tonAmount);
 }
 
 get fun `test in closed round, deposit should be carried in pending mode and be fullfilled at the end of the round`() {
