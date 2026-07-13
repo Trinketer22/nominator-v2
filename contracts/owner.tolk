@@ -112,7 +112,7 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
             try {
                 val validators = lazy storage.validators.load();
                 assert(sender == storage.owner, ErrorsPool.NotOwner);
-                assert (!storage.halted, ErrorsPool.PoolIsHalted);
+                assert(!storage.halted, ErrorsPool.PoolIsHalted);
 
                 // pending withdrawals are alredy part of nominatorsAmount
                 val pendingAmounts = storage.pendingDeposits;

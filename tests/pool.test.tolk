@@ -451,7 +451,11 @@ get fun `test reward withdrawal should be rejected when sender has no deposit`()
     val (pool, _owner, _notOwner, _validator) = setupDeployedPool();
     val stranger = testing.treasury("Stranger");
     val stateBefore = getAccountData(pool.address);
-    val res = pool.sendTextComment(stranger.address, "r".beginParse(), { value: DEFAULT_MSG_VALUE });
+    val res = pool.sendTextComment(
+        stranger.address,
+        "r".beginParse(),
+        { value: DEFAULT_MSG_VALUE },
+    );
     expect(
         res,
     ).toHaveRefund<TextComment>({ from: pool.address, to: stranger.address, error: ErrorsPool.DepositNotFound, previousState: stateBefore });
