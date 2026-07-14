@@ -764,7 +764,7 @@ fun onInternalMessage(in: InMessage) {
                 val usageRec = round
                     .users
                     .mustGet(proxyAddressHash, ErrorsPool.UsageRecordNotFound);
-                usageRec.rotation.checkRecoverRequirements(usageRec.heldFor);
+                val mcTimestamp = usageRec.rotation.checkRecoverRequirements(usageRec.heldFor);
                 //}
 
                 storage.validators = validators.toCell();
@@ -775,7 +775,7 @@ fun onInternalMessage(in: InMessage) {
                     bounce: false,
                     value: actionableValue -
                     calculateGasFee(BASECHAIN, getGasConsumedAtTheMoment() * 2),
-                    body: in.body,
+                    body: RecoverStakeCompat { queryId: mcTimestamp },
                 });
                 recoveryStake.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
                 reserveGramsOnBalance(
@@ -828,7 +828,10 @@ fun onInternalMessage(in: InMessage) {
             )!;
 
             // For unrestricted recovery always check the timing
-            usageRec.data.rotation.checkRecoverRequirements(usageRec.data.heldFor);
+            val mcTimestamp = usageRec
+                .data
+                .rotation
+                .checkRecoverRequirements(usageRec.data.heldFor);
             val minFee = calculateGasFee(BASECHAIN, getGasConsumedAtTheMoment() * 2) +
             in.originalForwardFee +
             msg.amount;
@@ -846,7 +849,7 @@ fun onInternalMessage(in: InMessage) {
                 // Also it is going to pay any occured storage for the proxy
                 bounce: false,
                 value: msg.amount,
-                body: RecoverStakeCompat { queryId: msg.queryId },
+                body: RecoverStakeCompat { queryId: mcTimestamp },
             });
             recoverStakeCompat.send(SEND_MODE_PAY_FEES_SEPARATELY);
             refundError(

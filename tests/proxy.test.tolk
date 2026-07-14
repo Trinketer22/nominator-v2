@@ -284,6 +284,42 @@ get fun `test low RecoverStakeOk uses proxy balance and sends minimum`() {
     expect(afterLowRecover).toBeLess(beforeLowRecover);
 }
 
+get fun `test if timestamp is below mc timestamp return RecoverStakeError`() {
+    val (proxy, validator, _otherWallet, pool, electorAddr) = setupProxyTestContext();
+
+    val curTime = testing.getNow();
+    expect(curTime).toNotEqual(0);
+
+    var res = net.send(
+        pool.address,
+        createMessage({
+            bounce: false,
+            value: ton("1"),
+            dest: proxy.address,
+            body: RecoverStakeCompat { queryId: curTime + 1 },
+        }),
+    );
+
+    expect(res).toHaveTx<RecoverStakeError>({ from: proxy.address, to: pool.address });
+    expect(res).toNotHaveTx({ to: electorAddr });
+
+    // Current timestamp or from the past should succeed
+    var belowExp: array<int> = [0, -1, -(random.range(1000) + 10)];
+    repeat (3) {
+        val curDelta = belowExp.pop();
+        res = net.send(
+            pool.address,
+            createMessage({
+                bounce: false,
+                value: ton("1"),
+                dest: proxy.address,
+                body: RecoverStakeCompat { queryId: curTime + curDelta },
+            }),
+        );
+        expect(res).toHaveSuccessfulTx({ to: electorAddr, from: proxy.address });
+    }
+}
+
 get fun `test bounced NewStake should be forwarded to pool as NewStakeError`() {
     val (proxy, _validator, _otherWallet, pool, electorAddr) = setupProxyTestContext();
     val newStake = NewStake {

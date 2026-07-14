@@ -264,8 +264,10 @@ fun ValidatorsData.rotateRound(
 
 fun RotationData.checkRecoverRequirements(self, heldFor: int) {
     assert(self.rotationCount >= 2, ErrorsPool.RoundTooEarly);
+    val expTimestamp = self.rotationTime + heldFor + 60;
     assert(self.rotationCount > 2 ||
-    (blockchain.now() - self.rotationTime > heldFor + 60), ErrorsPool.RecoveryTimeTooEarly);
+    blockchain.now() > expTimestamp, ErrorsPool.RecoveryTimeTooEarly);
+    return expTimestamp;
 }
 
 fun RoundData.rotateRoundRecords(mutate self, proxyHash: uint256, curVset: int): bool {
