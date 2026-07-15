@@ -1110,6 +1110,130 @@ get fun `test should not be able to recover till unfreeze time`() {
 
     res = pool.sendRecoverStakeCompat(testValidator, DEFAULT_QUERY_ID, { value: ton("100") });
     expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+    val proxyTx = res.findTransaction<RecoverStakeCompat>({ from: pool.address });
+
+    val recoveryBody = proxyTx!.loadBody<RecoverStakeCompat>();
+    // -1 because requred threshold is sent, not the real time
+    expect(recoveryBody.queryId).toEqual(testing.getNow() - 1);
+}
+
+get fun `test recovery timing should be irrelevant if rotation count is above 2`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    val testStake = stakes.minStake * 2;
+    // One rotation here
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+        testStake,
+    );
+    expect(
+        pool.getValidatorInfo(validator).usage.prevRoundUsage!.usage.rotation.rotationCount,
+    ).toEqual(1);
+
+    updateVsetHash();
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+    testing.runTickTock(elector.address, false);
+    testing.runTickTock(elector.address, true);
+
+    waitTillRecovery(pool, validator, elector.address);
+
+    // Now the third vset rotates, time is irrelevant
+    testing.setNow(testing.getNow() + 600);
+    updateVsetHash();
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+
+    val dataAfter = pool.getValidatorInfo(validator);
+    val usage = dataAfter.usage.prevRoundUsage!;
+    // Make condition stays unsattisfied.
+    expect(testing.getNow()).toBeLess(usage.usage.rotation.rotationTime + usage.usage.heldFor + 60);
+    expect(dataAfter.usage.prevRoundUsage!.usage.rotation.rotationCount).toEqual(3);
+
+    val res = pool.sendRecoverStakeCompat(
+        validator,
+        DEFAULT_QUERY_ID,
+        { value: DEFAULT_MSG_VALUE },
+    );
+    val recoveOkTx = res.findTransaction<RecoverStakeOk>({ to: pool.address });
+    expect(recoveOkTx).toBeNotNull();
+
+    // Make sure it is not excess return
+    expect(getInternalMessageValue(recoveOkTx!.loadInMsg<RecoverStakeOk>().info).grams).toBeGreater(
+        testStake,
+    );
+    val proxyTx = res.findTransaction<RecoverStakeCompat>({ from: pool.address });
+    expect(proxyTx).toBeNotNull();
+
+    val recoveryBody = proxyTx!.loadBody<RecoverStakeCompat>();
+    // In case above 2 rounds, 0 is sent
+    expect(recoveryBody.queryId).toEqual(0);
+}
+
+get fun `test recovery timing should be irrelevant if rotation count is above 2 for unrestricted path`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    val testStake = stakes.minStake * 2;
+    // One rotation here
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+        testStake,
+    );
+    expect(
+        pool.getValidatorInfo(validator).usage.prevRoundUsage!.usage.rotation.rotationCount,
+    ).toEqual(1);
+
+    updateVsetHash();
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+    testing.runTickTock(elector.address, false);
+    testing.runTickTock(elector.address, true);
+
+    waitTillRecovery(pool, validator, elector.address);
+
+    // Now the third vset rotates, time is irrelevant
+    testing.setNow(testing.getNow() + 600);
+    updateVsetHash();
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+
+    val dataAfter = pool.getValidatorInfo(validator);
+    val usage = dataAfter.usage.prevRoundUsage!;
+    // Make condition stays unsattisfied.
+    expect(testing.getNow()).toBeLess(usage.usage.rotation.rotationTime + usage.usage.heldFor + 60);
+    expect(dataAfter.usage.prevRoundUsage!.usage.rotation.rotationCount).toEqual(3);
+
+    val res = pool.sendRecoverStakeUnrestricted(
+        notOwner.address,
+        DEFAULT_QUERY_ID,
+        validator,
+        ton("1"),
+        { value: ton("1") * 2 },
+    );
+    val recoveOkTx = res.findTransaction<RecoverStakeOk>({ to: pool.address });
+    expect(recoveOkTx).toBeNotNull();
+
+    // Make sure it is not excess return
+    expect(getInternalMessageValue(recoveOkTx!.loadInMsg<RecoverStakeOk>().info).grams).toBeGreater(
+        testStake,
+    );
+
+    val proxyTx = res.findTransaction<RecoverStakeCompat>({ from: pool.address });
+    expect(proxyTx).toBeNotNull();
+
+    val recoveryBody = proxyTx!.loadBody<RecoverStakeCompat>();
+    // In case above 2 rounds, 0 is sent
+    expect(recoveryBody.queryId).toEqual(0);
 }
 
 get fun `test anybody should be able to recover on behalf of the validator at unfreeze time and later`() {

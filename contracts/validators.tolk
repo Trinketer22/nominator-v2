@@ -262,11 +262,14 @@ fun ValidatorsData.rotateRound(
     };
 }
 
-fun RotationData.checkRecoverRequirements(self, heldFor: int) {
+fun RotationData.checkRecoverRequirements(self, heldFor: int): int {
     assert(self.rotationCount >= 2, ErrorsPool.RoundTooEarly);
-    val expTimestamp = self.rotationTime + heldFor + 60;
-    assert(self.rotationCount > 2 ||
-    blockchain.now() > expTimestamp, ErrorsPool.RecoveryTimeTooEarly);
+    // For over 2 rounds, timestamp is irrelevant.
+    var expTimestamp = 0;
+    if (self.rotationCount == 2) {
+        expTimestamp = self.rotationTime + heldFor + 60;
+        assert(blockchain.now() > expTimestamp, ErrorsPool.RecoveryTimeTooEarly);
+    }
     return expTimestamp;
 }
 
