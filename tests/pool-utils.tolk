@@ -524,6 +524,10 @@ fun assertDelayedOperation(
     };
 
     val newPayout = PayoutItem.fromAddress(newPayoutState.calculateAddress());
+    val sameShardAddress = newPayout
+        .address
+        .calculateSameAddressInAnotherShard({ fixedPrefixLength: 4, closeTo: pool.address });
+    expect(newPayout.address).toEqual(sameShardAddress);
     expect(res).toHaveSuccessfulDeploy({
         from: pool.address,
         to: newPayout.address,
