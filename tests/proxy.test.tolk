@@ -290,30 +290,35 @@ get fun `test if timestamp is below mc timestamp return RecoverStakeError`() {
     val curTime = testing.getNow();
     expect(curTime).toNotEqual(0);
 
-    var res = net.send(
-        pool.address,
-        createMessage({
-            bounce: false,
-            value: ton("1"),
-            dest: proxy.address,
-            body: RecoverStakeCompat { queryId: curTime + 1 },
-        }),
-    );
+    var aboveExp: array<int> = [0, 1, random.range(1000) + 10];
 
-    expect(res).toHaveTx<RecoverStakeError>({ from: proxy.address, to: pool.address });
-    expect(res).toNotHaveTx({ to: electorAddr });
-
-    // Current timestamp or from the past should succeed
-    var belowExp: array<int> = [0, -1, -(random.range(1000) + 10)];
     repeat (3) {
-        val curDelta = belowExp.pop();
-        res = net.send(
+        val curDelta = aboveExp.pop();
+        var res = net.send(
             pool.address,
             createMessage({
                 bounce: false,
                 value: ton("1"),
                 dest: proxy.address,
                 body: RecoverStakeCompat { queryId: curTime + curDelta },
+            }),
+        );
+
+        expect(res).toHaveTx<RecoverStakeError>({ from: proxy.address, to: pool.address });
+        expect(res).toNotHaveTx({ to: electorAddr });
+    }
+
+    // timestamp from the past should succeed
+    var belowExp: array<int> = [1, random.range(1000) + 10];
+    repeat (2) {
+        val curDelta = belowExp.pop();
+        val res = net.send(
+            pool.address,
+            createMessage({
+                bounce: false,
+                value: ton("1"),
+                dest: proxy.address,
+                body: RecoverStakeCompat { queryId: curTime - curDelta },
             }),
         );
         expect(res).toHaveSuccessfulTx({ to: electorAddr, from: proxy.address });

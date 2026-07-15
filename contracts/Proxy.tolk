@@ -116,7 +116,7 @@ fun onInternalMessage(in: InMessage) {
                 );
             }
             RecoverStakeCompat => {
-                if (blockchain.now() >= msg.queryId) {
+                if (blockchain.now() > msg.queryId) {
                     proxyMsg(
                         elector,
                         in.body,
