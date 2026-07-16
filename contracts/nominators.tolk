@@ -136,6 +136,8 @@ fun NominatorsData.processPending(
     availableBalance: coins,
     supply: coins,
     total: coins,
+    pendingDeposits: coins,
+    pendingWithdrawals: coins,
 ): PendingProcessingResult {
     var halted = false;
     var withdrawn: coins = 0;
@@ -151,14 +153,19 @@ fun NominatorsData.processPending(
     }
     if (self.pendingWithdrawals != null) {
         val withdrawals = self.pendingWithdrawals.load();
-        (withdrawn, halted) = withdrawals.process(availableBalance, supply, total);
+        (withdrawn, halted) = withdrawals.process(
+            availableBalance,
+            supply,
+            total,
+            pendingWithdrawals,
+        );
         if (!halted) {
             self.pendingWithdrawals = null;
         }
     }
     if (self.pendingDeposits != null && !halted) {
         val deposits = self.pendingDeposits.load();
-        (deposited, halted) = deposits.process(availableBalance, supply, total);
+        (deposited, halted) = deposits.process(availableBalance, supply, total, pendingDeposits);
         if (!halted) {
             self.pendingDeposits = null;
         }
@@ -173,16 +180,23 @@ fun Nominator.add(mutate self, nm: Nominator): Nominator {
     return self;
 }
 
-fun PendingOps.process(self, availableBalance: coins, supply: coins, total: coins): (coins, bool) {
+fun PendingOps.process(
+    self,
+    availableBalance: coins,
+    supply: coins,
+    total: coins,
+    opAggregate: coins,
+): (coins, bool) {
     var processedAmount: coins;
 
+    val pendingAmount = min(self.pendingAmount, opAggregate);
     if (self.isWithdraw) {
-        processedAmount = calcSharePrice(self.pendingAmount, total, supply);
+        processedAmount = calcSharePrice(pendingAmount, total, supply);
         if (availableBalance < processedAmount) {
             return (0 as coins, true);
         }
     } else {
-        processedAmount = calcShareCount(self.pendingAmount, supply, total);
+        processedAmount = calcShareCount(pendingAmount, supply, total);
     }
     // No balance check here, since that is an action we can execute
     // even at a cost of loosing fraction of storage reserve.

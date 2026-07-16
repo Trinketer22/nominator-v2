@@ -249,6 +249,8 @@ fun Storage.finalizeRound(mutate self, rotationStatus: RotationStatus): int {
                 contract.getOriginalBalance() - POOL_MIN_STORAGE,
                 self.poolSupply,
                 self.nominatorsAmount,
+                self.pendingDeposits,
+                self.pendingWithdrawals,
             );
             if (pendingStatus.withdrawn > 0) {
                 sentTotal += PAYOUT_ITEM_BALANCE;
