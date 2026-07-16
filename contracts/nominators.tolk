@@ -79,10 +79,7 @@ fun Nominator.withdrawShare(
             pendingWithdrawals = pending.load();
         }
 
-        var newPending = shareCount;
-        if (shareCount == 0) {
-            newPending = self.pendingWithdrawal;
-        }
+        val newPending = shareCount + self.pendingWithdrawal;
         pendingWithdrawals.addPending(owner, newPending, roundIndex);
         // In ROUNDS_DELAY rounds should be guaranteed to withdraw, but
         // if this doesn't happen for whatever reason,
