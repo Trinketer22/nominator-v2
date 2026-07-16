@@ -202,7 +202,11 @@ fun setupElector(): (ElectorCode, StakesConfig, ParticipantsConfig) {
 fun setExpiredVset(config: BlockchainConfigMap) {
     val curVset = ValidaorSet.fromCell(config.getParamRaw(CUR_VSET_IDX)!);
     val electionTiming = getElectionsTiming();
-    testing.setNow(curVset.utimeUntil - electionTiming.endBefore - 100);
+    val expTs = curVset.utimeUntil - electionTiming.endBefore - 100;
+    val curTime = testing.getNow();
+    if (curTime < expTs) {
+        testing.setNow(expTs);
+    }
 }
 
 fun rotateVset(elector: address, reward: int) {
