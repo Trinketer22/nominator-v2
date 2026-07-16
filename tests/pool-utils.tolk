@@ -578,6 +578,7 @@ fun assertDelayedOperation(
     } else {
         expect(poolAfter.pendingDeposits).toEqual(poolBefore.pendingDeposits + incomingValue);
         expect(rawDataAfter.pendingDeposit).toEqual(rawDataBefore.pendingDeposit + incomingValue);
+        expect(rawDataAfter.depositIndex).toEqual(poolAfter.roundIndex + ROUNDS_DELAY);
     }
 
     return (newPayout, operationDelta);
