@@ -69,6 +69,8 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
 
             val hasPrevUsage = !prevRound.users.isEmpty();
 
+            val retryIdx = self.roundIndex + ROUNDS_DELAY;
+            var newPendingAmount = incommingValue;
             if (self.roundClosed || hasPrevUsage) {
                 var pendingDeposits = nominators.pendingDeposits == null
                     ? PendingOps { isWithdraw: false }
@@ -76,8 +78,14 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
                 val nmLookup = nominators.poolNominators.get(sender);
                 if (nmLookup.isFound) {
                     var oldPending = nmLookup.loadValue();
+                    assert(oldPending.depositIndex <=
+                    self.roundIndex, ErrorsPool.DepositAlreadyRequested);
+                    oldPending.depositIndex = retryIdx;
                     oldPending.pendingDeposit += incommingValue;
                     nominators.poolNominators.set(sender, oldPending);
+                    // It may theoretically increment pendingDeposits.amount past storage.pendingDeposits
+                    // However during processing it is clamped down to the storage.pendingDeposits
+                    newPendingAmount = oldPending.pendingDeposit;
                 } else {
                     nominators
                         .poolNominators
@@ -87,11 +95,12 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
                                 share: 0,
                                 tonAmount: 0,
                                 pendingDeposit: incommingValue,
+                                depositIndex: retryIdx,
                             },
                         );
                     nominators.nmCount += 1;
                 }
-                pendingDeposits.addPending(sender, incommingValue, self.roundIndex);
+                pendingDeposits.addPending(sender, newPendingAmount, self.roundIndex);
                 nominators.pendingDeposits = pendingDeposits.toCell();
                 self.pendingDeposits += incommingValue;
             } else {
@@ -1064,6 +1073,7 @@ fun onInternalMessage(in: InMessage) {
                 });
 
                 updatedNm.pendingDeposit = 0;
+                updatedNm.depositIndex = 0;
                 nominators.poolNominators.set(msg.owner, updatedNm);
                 storage.poolSupply += nmShare;
                 storage.pendingDeposits = max(storage.pendingDeposits - nmData.pendingDeposit, 0);

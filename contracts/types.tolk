@@ -13,6 +13,7 @@ struct Nominator {
     tonAmount: coins
     pendingDeposit: coins = 0
     pendingWithdrawal: coins = 0
+    depositIndex: uint64 = 0
     withdrawalIndex: uint64 = 0
 }
 

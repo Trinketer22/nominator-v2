@@ -18,6 +18,7 @@ enum ErrorsPool {
     NotOwner = 200
     OwnerNotFound
     WithdrawalAlreadyRequested
+    DepositAlreadyRequested
     NothingToWithdraw
     NothingToDeposit
     RewardIsBelowMinimal
