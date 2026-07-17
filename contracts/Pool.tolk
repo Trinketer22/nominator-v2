@@ -985,7 +985,7 @@ fun onInternalMessage(in: InMessage) {
                     distribution.pendingShare,
                 );
                 assert(sharePrice > 0, ErrorsPool.NothingToWithdraw);
-                if (contract.getOriginalBalance() - POOL_MIN_STORAGE - in.valueCoins > sharePrice) {
+                if (contract.getOriginalBalance() - POOL_MIN_STORAGE > sharePrice) {
                     // I don't see this ever getting below zero, but we can't afford that to stay.
                     // And single instruction call we can afford.
                     storage.pendingWithdrawals = max(
