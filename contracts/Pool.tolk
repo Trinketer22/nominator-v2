@@ -53,6 +53,10 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
     assert(!self.halted, ErrorsPool.PoolIsHalted);
 
     var validators = self.validators.load();
+    val totalBalance = contract.getOriginalBalance() - value - self.pendingDeposits -
+    POOL_MIN_STORAGE +
+    validators.stakeUsed;
+    assert(totalBalance > self.nominatorsAmount, ErrorsPool.Insolvent);
     self.finalizeRound(validators.rotateRound(validators.mainValidatorAddress, self.roundIndex));
     self.validators = validators.toCell();
 

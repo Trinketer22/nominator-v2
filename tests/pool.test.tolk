@@ -607,10 +607,10 @@ get fun `test if pool received loss, nominators stake should decrease in price`(
     val poolBefore = pool.getPoolData();
     val nmBefore = pool.getNominatorData(nmHash);
 
-    // Let's say we got 10% loss
+    // Let's say we got 3% loss
 
     val used = valInfo.usage.prevRoundUsage!.usage.tonUsed;
-    val returnedStake = mulDivFloor(used, 9000, 10000);
+    val returnedStake = mulDivFloor(used, 9700, 10000);
     val expectedLoss = returnedStake -
     min(
         valInfo.validator.refundAmount,
@@ -657,6 +657,156 @@ get fun `test if pool received loss, nominators stake should decrease in price`(
     expect(nmAfter.amount).toBeLess(nmBefore.amount);
 
     asssertSimpleWithdawal(pool, testNm);
+}
+
+get fun `test deep losses should put pool nm operations into insolvent state`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+
+    val valInfo = waitTillRecovery(pool, validator, elector.address);
+
+    val testNm = nominators.get(random.range(40 - 1));
+
+    // Let's say we now got 10% loss
+
+    val used = valInfo.usage.prevRoundUsage!.usage.tonUsed;
+    val expectedProxy = valInfo.usage.prevRoundUsage!.proxy;
+    val returnedStake = mulDivFloor(used, 9000, 10000);
+    var res = net.send(
+        address.fromWorkchainAndHash(MASTERCHAIN, expectedProxy),
+        createMessage({
+            bounce: false,
+            dest: pool.address,
+            value: returnedStake,
+            body: RecoverStakeOk {
+                queryId: 0,
+                remaining: ProxyResponseData {
+                    validator,
+                    parity: false, // W're returning round 0 stake
+                }.toCell()
+                    .beginParse(),
+            },
+        }),
+    );
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+
+    val poolAfter = pool.getPoolData();
+    // Projected total balance
+    val poolBalance = testing.getAccountBalance(pool.address) +
+    poolAfter.validators.load().stakeUsed;
+    // Less than total nominators obligations
+    expect(poolBalance).toBeLess(poolAfter.nominatorsAmount);
+
+    val stateBefore = getAccountData(pool.address);
+    // So no withdrawals accepted
+    res = pool.sendTextComment(
+        testNm,
+        "w".beginParse(),
+        { value: WITHDRAWAL_GAS },
+    );
+    expect(
+        res,
+    ).toHaveRefund<TextComment>({
+        to: testNm,
+        from: pool.address,
+        error: ErrorsPool.Insolvent,
+        previousState: stateBefore,
+        initialBalance: testing.getAccountBalance(
+            pool.address,
+        ),
+    });
+
+    // Including rewards
+    res = pool.sendTextComment(
+        testNm,
+        "r".beginParse(),
+        { value: WITHDRAWAL_GAS },
+    );
+    expect(
+        res,
+    ).toHaveRefund<TextComment>({
+        to: testNm,
+        from: pool.address,
+        error: ErrorsPool.Insolvent,
+        previousState: stateBefore,
+        initialBalance: testing.getAccountBalance(
+            pool.address,
+        ),
+    });
+
+    // And most importantly deposits
+    res = pool.sendTextComment(
+        testNm,
+        "d".beginParse(),
+        { value: stakes.minStake * 2 },
+    );
+    expect(
+        res,
+    ).toHaveRefund<TextComment>({
+        to: testNm,
+        from: pool.address,
+        error: ErrorsPool.Insolvent,
+        previousState: stateBefore,
+        initialBalance: testing.getAccountBalance(
+            pool.address,
+        ),
+    });
+    // Since owner share got hit, new stake should hit OwnerShareIsUndercapitalized
+    val elections = announceElections(elector);
+    assertNewStakeFailed(
+        ErrorsPool.OwnerShareIsUndercapitalized,
+        validator,
+        pool,
+        elector.address,
+        elections,
+        stakes.minStake * 2,
+    );
+
+    // But recovery should work, since recovery brings potential profit.
+    // Let's organize some nice profit to definitely cover the previous loss on return
+    runElections(elector, stakes, limits, ton("10000"));
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+
+    res = waitAndRecoverStake(pool, validator, elector.address);
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+    val balanceAfter = testing.getAccountBalance(pool.address);
+    expect(balanceAfter).toBeGreater(poolAfter.nominatorsAmount);
+
+    // All operations should work again
+    asssertSimpleWithdawal(pool, testNm);
+    val depositor = testing.treasury("Depositor");
+    assertPoolDepositInstant(pool, depositor.address, stakes.minStake * 2);
+
+    var rewardNm = nominators.get(random.range(41));
+    while (rewardNm == testNm) {
+        rewardNm = nominators.get(random.range(41));
+    }
+
+    res = pool.sendTextComment(
+        rewardNm,
+        "r".beginParse(),
+        { value: WITHDRAWAL_GAS },
+    );
+    expect(res).toHaveTx<WithdrawSuccess>({ to: rewardNm });
 }
 
 get fun `test in open round, if pool doesn't have enough balance to withdraw, it shold make withdrawal pending`() {
