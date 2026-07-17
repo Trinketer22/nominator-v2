@@ -70,7 +70,6 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
             val hasPrevUsage = !prevRound.users.isEmpty();
 
             val retryIdx = self.roundIndex + ROUNDS_DELAY;
-            var newPendingAmount = incommingValue;
             if (self.roundClosed || hasPrevUsage) {
                 var pendingDeposits = nominators.pendingDeposits == null
                     ? PendingOps { isWithdraw: false }
@@ -83,9 +82,6 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
                     oldPending.depositIndex = retryIdx;
                     oldPending.pendingDeposit += incommingValue;
                     nominators.poolNominators.set(sender, oldPending);
-                    // It may theoretically increment pendingDeposits.amount past storage.pendingDeposits
-                    // However during processing it is clamped down to the storage.pendingDeposits
-                    newPendingAmount = oldPending.pendingDeposit;
                 } else {
                     nominators
                         .poolNominators
@@ -100,7 +96,7 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
                         );
                     nominators.nmCount += 1;
                 }
-                pendingDeposits.addPending(sender, newPendingAmount, self.roundIndex);
+                pendingDeposits.addPending(sender, self.roundIndex);
                 nominators.pendingDeposits = pendingDeposits.toCell();
                 self.pendingDeposits += incommingValue;
             } else {

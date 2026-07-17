@@ -557,13 +557,6 @@ fun assertDelayedOperation(
     }
 
     expect(opsAfter != null).toBeTrue();
-    val opsParsed = opsAfter!.load();
-
-    if (operations != null) {
-        expect(opsParsed.pendingAmount).toEqual(operations.pendingAmount + operationDelta);
-    } else {
-        expect(opsParsed.pendingAmount).toEqual(operationDelta);
-    }
 
     val rawDataAfter = nmAfter.poolNominators.mustGet(nm, 42);
     if (isWithdrawal) {

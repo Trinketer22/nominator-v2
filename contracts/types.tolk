@@ -142,7 +142,6 @@ struct PendingOps {
     nextStateInit: Cell<StateInit>? = null
     index: uint64 = 0
     isWithdraw: bool
-    pendingAmount: coins = 0
 }
 
 struct PendingOpsCtx {

@@ -79,8 +79,7 @@ fun Nominator.withdrawShare(
             pendingWithdrawals = pending.load();
         }
 
-        val newPending = shareCount + self.pendingWithdrawal;
-        pendingWithdrawals.addPending(owner, newPending, roundIndex);
+        pendingWithdrawals.addPending(owner, roundIndex);
         // In ROUNDS_DELAY rounds should be guaranteed to withdraw, but
         // if this doesn't happen for whatever reason,
         // nominator will be able to retry.
@@ -188,15 +187,13 @@ fun PendingOps.process(
     opAggregate: coins,
 ): (coins, bool) {
     var processedAmount: coins;
-
-    val pendingAmount = min(self.pendingAmount, opAggregate);
     if (self.isWithdraw) {
-        processedAmount = calcSharePrice(pendingAmount, total, supply);
+        processedAmount = calcSharePrice(opAggregate, total, supply);
         if (availableBalance < processedAmount) {
             return (0 as coins, true);
         }
     } else {
-        processedAmount = calcShareCount(pendingAmount, supply, total);
+        processedAmount = calcShareCount(opAggregate, supply, total);
     }
     // No balance check here, since that is an action we can execute
     // even at a cost of loosing fraction of storage reserve.
@@ -219,10 +216,9 @@ fun PendingOps.process(
     return (processedAmount, false);
 }
 
-fun PendingOps.addPending(mutate self, owner: address, amount: int, roundIndex: int): uint64 {
+fun PendingOps.addPending(mutate self, owner: address, roundIndex: int): uint64 {
     // Repilcating the mechanics of liquid staking payout
     self.index += 1;
-    self.pendingAmount += amount;
     if (self.nextStateInit == null) {
         self.nextStateInit = calculateItemStateInit(
             self.index,
