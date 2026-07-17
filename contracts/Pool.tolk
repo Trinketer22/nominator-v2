@@ -906,8 +906,8 @@ fun onInternalMessage(in: InMessage) {
 
             val profit = returned - stakeReturned.tonUsed;
 
-            validators.stakeUsed -= stakeReturned.tonUsed;
-            validators.activeSlots -= 1;
+            validators.stakeUsed = max(validators.stakeUsed - stakeReturned.tonUsed, 0);
+            validators.activeSlots = max(validators.activeSlots - 1, 0);
 
             // This should practically always be true.
             if (validator != null) {
