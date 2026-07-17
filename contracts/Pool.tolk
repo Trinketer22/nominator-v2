@@ -1235,3 +1235,54 @@ get fun get_nominator_minimal_stake(): GetMinStake {
 
     return { minStake: nominators.minStake, minExpectedValue: nominators.minStake + DEPOSIT_GAS };
 }
+
+// Recomputes cached aggregates from the primary nominator map and reports
+// whether they match the stored values. Read-only diagnostic — no assertion.
+// See PoolInvariants for the semantics of each field.
+get fun get_pool_invariants(): PoolInvariants {
+    val storage = lazy Storage.load();
+    val nominators = lazy storage.nominators.load();
+    val validators = lazy storage.validators.load();
+
+    var recomputedSupply: coins = 0;
+    var recomputedPendingWithdrawals: coins = 0;
+    var recomputedPendingDeposits: coins = 0;
+    var recomputedTonAmount: coins = 0;
+    var recomputedNmCount: int = 0;
+
+    var iter = nominators.poolNominators.findFirst();
+    while (iter.isFound) {
+        val nm = iter.loadValue();
+        recomputedSupply += nm.share;
+        recomputedPendingWithdrawals += nm.pendingWithdrawal;
+        recomputedPendingDeposits += nm.pendingDeposit;
+        recomputedTonAmount += nm.tonAmount;
+        recomputedNmCount += 1;
+        iter = nominators.poolNominators.iterateNext(iter);
+    }
+
+    val supplyMatch = recomputedSupply + recomputedPendingWithdrawals == storage.poolSupply;
+    val pendingWithdrawalsMatch = recomputedPendingWithdrawals == storage.pendingWithdrawals;
+    val pendingDepositsMatch = recomputedPendingDeposits == storage.pendingDeposits;
+    val nmCountMatch = recomputedNmCount == nominators.nmCount;
+    val allMatch = supplyMatch && pendingWithdrawalsMatch && pendingDepositsMatch && nmCountMatch;
+
+    val projectedBalance = contract.getOriginalBalance() + validators.stakeUsed -
+    storage.pendingDeposits -
+    POOL_MIN_STORAGE;
+
+    return PoolInvariants {
+        supplyMatch,
+        pendingWithdrawalsMatch,
+        pendingDepositsMatch,
+        nmCountMatch,
+        allMatch,
+        nominatorsAmount: storage.nominatorsAmount,
+        projectedBalance,
+        recomputedSupply,
+        recomputedPendingWithdrawals,
+        recomputedPendingDeposits,
+        recomputedNmCount,
+        recomputedTonAmount,
+    };
+}

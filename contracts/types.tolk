@@ -318,3 +318,37 @@ struct RotationStatus {
     roundIsClosed: bool
     prevRoundInfo: RoundInfo?
 }
+
+// Audit/diagnostic result for get_pool_invariants.
+// Recomputes cached aggregates from the primary nominator map and reports
+// whether they match the stored aggregates. No assertion — reports only.
+//
+// Share lifecycle note: pending-withdrawal shares are deducted from
+// nominator.share at request time but remain counted in poolSupply until
+// PayoutBurnNotification burns them. Thus:
+//   poolSupply == sum(nominator.share) + sum(nominator.pendingWithdrawal)
+// not  poolSupply == sum(nominator.share).
+//
+// nominatorsAmount has no non-tautological invariant (it is a primary state
+// variable, moved globally by profit/loss at RecoverStakeOk with no
+// per-nominator mirror), so it is exposed alongside the independent balance
+// projection for off-chain solvency monitoring rather than checked.
+struct PoolInvariants {
+    // Real invariants — recomputed from nominator map, compared to stored aggregates
+    supplyMatch: bool             // sum(share) + sum(pendingWithdrawal) == poolSupply
+    pendingWithdrawalsMatch: bool // sum(pendingWithdrawal) == storage.pendingWithdrawals
+    pendingDepositsMatch: bool    // sum(pendingDeposit) == storage.pendingDeposits
+    nmCountMatch: bool            // count(nominators) == nominators.nmCount
+    allMatch: bool                // AND of the four above
+
+    // Transparency pair for off-chain solvency monitoring
+    nominatorsAmount: coins
+    projectedBalance: coins // balance + stakeUsed - pendingDeposits - POOL_MIN_STORAGE
+
+    // Recomputed values for debugging / monitoring
+    recomputedSupply: coins
+    recomputedPendingWithdrawals: coins
+    recomputedPendingDeposits: coins
+    recomputedNmCount: int
+    recomputedTonAmount: coins // sum(nominator.tonAmount) (deposit-time baselines)
+}

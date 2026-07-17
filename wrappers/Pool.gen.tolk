@@ -396,3 +396,7 @@ fun Pool.getLimitsPerValidator(self): (coins, coins, coins) {
 fun Pool.getNominatorMinimalStake(self): GetMinStake {
     return net.runGetMethod(self.address, "get_nominator_minimal_stake");
 }
+
+fun Pool.getPoolInvariants(self): PoolInvariants {
+    return net.runGetMethod(self.address, "get_pool_invariants");
+}
