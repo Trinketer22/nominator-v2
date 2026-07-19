@@ -211,7 +211,7 @@ fun PendingOps.process(
                 },
             },
         });
-        burnMessage.send(SEND_MODE_REGULAR);
+        burnMessage.send(SEND_MODE_REGULAR | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
     }
     return (processedAmount, false);
 }
