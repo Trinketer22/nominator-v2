@@ -1,6 +1,7 @@
 import "@contracts/types"
 
 const ROUNDS_DELAY = 3
+const MAX_NM_DEPTH = 15
 
 @inline
 fun mulDivQuiet(multA: int, multB: int, divisor: int): int {

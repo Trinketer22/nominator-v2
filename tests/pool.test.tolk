@@ -2054,6 +2054,38 @@ get fun `test in closed round, withdraw should become pending and be fullfilled 
     );
 }
 
+get fun `test nm dictionary depth limit`() {
+    val (pool, _owner, _notOwner, _vaidator) = setupDeployedPool();
+    var depoHash = 0;
+    var iterCount = 0;
+    val testDepo = ton("10000");
+
+    while (iterCount < MAX_NM_DEPTH + 1) {
+        var testKey = address.fromWorkchainAndHash(BASECHAIN, depoHash);
+        assertPoolDepositInstant(pool, testKey, testDepo);
+        iterCount += 1;
+        depoHash |= 1 << iterCount;
+    }
+    val poolAfter = pool.getPoolData();
+    val nmAfter = lazy poolAfter.nominators.load();
+    expect(nmAfter.poolNominators.toLowLevelDict().depth()).toEqual(MAX_NM_DEPTH);
+
+    val stateBefore = getAccountData(pool.address);
+    val balanceBefore = testing.getAccountBalance(pool.address);
+    depoHash |= 1 << (iterCount + 1);
+
+    val tooDeepAddress = address.fromWorkchainAndHash(BASECHAIN, depoHash);
+    var depoReject = pool.sendTextComment(tooDeepAddress, "d".beginParse(), { value: testDepo });
+
+    expect(depoReject).toHaveRefund<TextComment>({
+        from: pool.address,
+        to: tooDeepAddress,
+        error: ErrorsPool.NominatorsTooDeep,
+        previousState: stateBefore,
+        initialBalance: balanceBefore,
+    });
+}
+
 get fun `test in closed round, deposit should become pending`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(100);

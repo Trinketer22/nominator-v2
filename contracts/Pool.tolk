@@ -129,6 +129,8 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
                 self.poolSupply += nmShare;
                 self.nominatorsAmount += incommingValue;
             }
+            assert(nominators.poolNominators.toLowLevelDict().depth() <=
+            MAX_NM_DEPTH, ErrorsPool.NominatorsTooDeep);
 
             self.nominators = nominators.toCell();
             self.save();
