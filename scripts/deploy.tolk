@@ -5,22 +5,23 @@ import "@acton/emulation/scripts"
 
 import "@contracts/messages"
 import "@contracts/types"
+import "@scripts/pool-utils"
 import "@wrappers/Pool.gen"
 
 fun main() {
     val walletName = env<string>("DEPLOYER_WALLET") ?? "deployer";
     val deployer = scripts.wallet(walletName);
 
-    val poolId = env<int>("POOL_ID") ?? 42;
-    val deployValue = env<coins>("DEPLOY_VALUE") ?? ton("10000");
+    val poolId = env<int>("POOL_ID") ?? 0;
+    val deployValue = env<coins>("DEPLOY_VALUE") ?? ton("250");
 
     val mainValidator = env<address>("MAIN_VALIDATOR") ??
     address.fromWorkchainAndHash(MASTERCHAIN, deployer.address.getWorkchainAndHash().1);
     assert(mainValidator.getWorkchain() == MASTERCHAIN, 100);
 
     val ownerShare = env<int>("OWNER_SHARE") ?? (SHARE_BASE / 2);
-    val maxTonPerValidator = env<coins>("MAX_TON_PER_VALIDATOR") ?? ton("1000000");
-    val minTonPerValidator = env<coins>("MIN_TON_PER_VALIDATOR") ?? ton("10000");
+    val maxTonPerValidator = env<coins>("MAX_TON_PER_VALIDATOR") ?? ton("10000000");
+    val minTonPerValidator = env<coins>("MIN_TON_PER_VALIDATOR") ?? ton("300000");
     val maxRefund = env<coins>("MAX_REFUND") ?? ton("3");
 
     val maxNominators = env<int>("MAX_NOMINATORS") ?? 1023;
@@ -42,6 +43,9 @@ fun main() {
 
     if (scripts.isContractDeployed(pool.address)) {
         println("Pool is already deployed at {}", pool.address);
+        // EMUL-TEST-ONLY: persist emulator state so the next `acton script` invocation
+        // sees this transaction's effects. No-op under `--net`.
+        saveEmulationSnapshot();
         return;
     }
 
@@ -86,4 +90,8 @@ fun main() {
     println("Main validator: {}", mainValidator);
     println("Owner share: {}/{}", ownerShare, SHARE_BASE);
     println("Value sent: {:gram}", deployValue);
+
+    // EMUL-TEST-ONLY: persist emulator state so the next `acton script` invocation
+    // sees this transaction's effects. No-op under `--net`.
+    saveEmulationSnapshot();
 }

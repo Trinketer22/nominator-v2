@@ -37,11 +37,28 @@ exclude = ["tests/*.tolk"]
 [scripts]
 deploy-emulation = "acton script scripts/deploy.tolk"
 deploy-testnet = "acton script scripts/deploy.tolk --net testnet"
+add-validator-emulation = "acton script scripts/add-validator.tolk"
+add-validator-testnet = "acton script scripts/add-validator.tolk --net testnet"
+remove-validator-emulation = "acton script scripts/remove-validator.tolk"
+remove-validator-testnet = "acton script scripts/remove-validator.tolk --net testnet"
+update-nominators-whitelist-emulation = "acton script scripts/update-nominators-whitelist.tolk"
+update-nominators-whitelist-testnet = "acton script scripts/update-nominators-whitelist.tolk --net testnet"
+owner-withdrawal-emulation = "acton script scripts/owner-withdrawal.tolk"
+owner-withdrawal-testnet = "acton script scripts/owner-withdrawal.tolk --net testnet"
+add-funds-emulation = "acton script scripts/add-funds.tolk"
+add-funds-testnet = "acton script scripts/add-funds.tolk --net testnet"
+update-validator-limits-emulation = "acton script scripts/update-validator-limits.tolk"
+update-validator-limits-testnet = "acton script scripts/update-validator-limits.tolk --net testnet"
+update-nominator-limits-emulation = "acton script scripts/update-nominator-limits.tolk"
+update-nominator-limits-testnet = "acton script scripts/update-nominator-limits.tolk --net testnet"
+update-validator-limit-emulation = "acton script scripts/update-validator-limit.tolk"
+update-validator-limit-testnet = "acton script scripts/update-validator-limit.tolk --net testnet"
 
 [import-mappings]
 acton = ".acton"
 contracts = "contracts"
 gen = "gen"
+scripts = "scripts"
 tests = "tests"
 wrappers = "wrappers"
 
