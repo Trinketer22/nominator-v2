@@ -1,6 +1,8 @@
 import "@contracts/errors"
 
 const SHARE_BASE = 256 * 256 * 256
+const ROUNDS_DELAY = 3
+const MAX_NM_DEPTH = 15
 
 enum ValidatorState {
     NoTonUsed = 0
