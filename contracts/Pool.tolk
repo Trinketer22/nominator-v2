@@ -592,7 +592,11 @@ fun onInternalMessage(in: InMessage) {
                     return;
                 }
 
+                // Validates the NewStake body
                 val newStake = NewStakeBody.fromSlice(msg.signedBody);
+                // stakeAt is uint32, so this assert is always true.
+                // Its real purpose is to use newStake, preventing the compiler
+                // from optimizing out the fromSlice call above.
                 assert(newStake.stakeAt >= 0, ErrorsPool.InvalidMessage);
 
                 val valLimit = valData.data.limit;
