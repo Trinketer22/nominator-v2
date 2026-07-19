@@ -118,9 +118,6 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
 
                 if (nmLookup.isFound) {
                     var oldNm = nmLookup.loadValue();
-                    // Should we allow covering pendingDeposits here too?
-                    // Like if user still has something pending.
-                    // Smells like races
                     nominators.poolNominators.set(sender, oldNm.add(newNominator));
                 } else {
                     nominators.nmCount += 1;
@@ -201,7 +198,6 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
             // Share delta has rounding favouring the nominator in range of 1 share point.
             // Since 1 share point is initially 1 nanogram at start, pools don't make as much return,
             // to make this rounding economically significant.
-            // Which is ok, is it?
             val shareDelta = calcShareCount(
                 rewardAmount,
                 self.poolSupply,
@@ -326,11 +322,6 @@ fun handleNewStakeError(sender: address, value: int) {
     val (workchain, addrHash) = sender.getWorkchainAndHash();
     assert(workchain == MASTERCHAIN, ErrorsPool.NotFromProxy);
 
-    // var curRound = validators.curRound.load();
-    val _returnedVal = value - ton("1");
-
-    // 1 ton we're guaranteed to have for each NewStake
-    // var (stakeReturned, roundIdx,_roundDone) = validators.coverUsageByAddress(sender, returnedVal, true, ton("1"));
     val stakeReturned = validators.getUsageRecord(
         addrHash,
         RoundAllowance.InAllRounds as int,
@@ -481,20 +472,6 @@ fun onInternalMessage(in: InMessage) {
             val inValue = min(in.valueCoins, REFUND_THRESHOLD);
             val status = validators.rotateRound(in.senderAddress, storage.roundIndex, inValue);
             storage.finalizeRound(status);
-            /*
-            if(status.rotated && !status.closed) {
-                storage.roundIndex += 1;
-                if((storage.pendingDeposits | storage.pendingWithdrawals) > 0) {
-                    val availableBalance = contract.getOriginalBalance() - in.valueCoins - POOL_MIN_STORAGE;
-                    var nominators = storage.nominators.load();
-                    val processingRes = nominators.processPending(availableBalance, storage.poolSupply, storage.nominatorsAmount);
-                    storage.halted = processingRes.halted;
-                    if(!processingRes.halted) {
-                        storage.nominators = nominators.toCell();
-                    }
-                }
-            }
-            */
             if (in.senderAddress != contract.getAddress()) {
                 reserveGramsOnBalance(
                     REFUND_THRESHOLD,
@@ -731,8 +708,6 @@ fun onInternalMessage(in: InMessage) {
             );
             val proxyAddress = getProxyAddress(proxyResp.validator, proxyResp.parity);
 
-            // If sender is not valida proxy, bounce?
-            // Otherwise there is nothing to do
             assert(in.senderAddress == proxyAddress, ErrorsPool.NotFromProxy);
         }
         NewStakeError => {
@@ -1122,7 +1097,6 @@ get fun get_proxy_address(validator: address): GetProxyAddressResult {
     };
 }
 
-// Should we retain compatability even though nominators can now be in both workchains?
 get fun get_nominator_data(nominatorAddress: int): GetNominatorData {
     var wc = 0;
 
@@ -1148,8 +1122,7 @@ get fun get_nominator_data(nominatorAddress: int): GetNominatorData {
                 amount: sharePrice,
                 pendingDepositAmount: pendingAmount,
                 withdrawFound: nmData.pendingWithdrawal > 0,
-                reward: sharePrice -
-                nmData.tonAmount,                      // Does it practically break the compatability?
+                reward: sharePrice - nmData.tonAmount,
             };
         }
 

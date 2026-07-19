@@ -39,7 +39,6 @@ fun ValidatorsData.coverUsageByAddress(
     var round = firstRound.load();
     val (wc, addrHash) = address.getWorkchainAndHash();
     // Do nothing for basechain addresses
-    // Bit of a hack, but it's okay?
     if (wc == BASECHAIN) {
         return (null, round.roundIndex, round.users.isEmpty());
     }
@@ -170,7 +169,6 @@ fun ValidatorsData.rotateRound(
                 returned: prevRound.returned,
                 roundIndex: prevRound.roundIndex,
             };
-            // self.mainValidatorData = mainData.toCell();
             self.prevRound = self.curRound;
             // Reload the prev round only here
             prevRound = self.curRound.load();

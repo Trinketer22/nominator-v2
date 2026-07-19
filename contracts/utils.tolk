@@ -26,12 +26,6 @@ fun toBitIndex(value: int): int {
 fun parityToMask(isOdd: bool): int {
     // 2 + isOdd as int since true is -1???
     return 2 + (isOdd as int);
-    /*
-    if(isOdd) {
-        return RoundAllowance.inOddRounds as int;
-    }
-    return RoundAllowance.inEvenRounds as int;
-    */
 }
 
 fun getMaxPunishmentInt(stake: int): int {
@@ -41,7 +35,7 @@ fun getMaxPunishmentInt(stake: int): int {
         return ton("101");
     }
 
-    val parsedConf = PushishmentConfig.fromCell(punishmentConf);
+    val parsedConf = PunishmentConfig.fromCell(punishmentConf);
 
     var fine = parsedConf.defaultFlatFine;
     var finePart = parsedConf.defaultProportionalFine;

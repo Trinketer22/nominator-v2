@@ -4,12 +4,6 @@ const SHARE_BASE = 256 * 256 * 256
 const ROUNDS_DELAY = 3
 const MAX_NM_DEPTH = 15
 
-enum ValidatorState {
-    NoTonUsed = 0
-    AwaitingStakeConfirmation
-    AwaitingStakeRecovery
-}
-
 struct Nominator {
     share: coins
     tonAmount: coins
@@ -146,11 +140,6 @@ struct PendingOps {
     isWithdraw: bool
 }
 
-struct PendingOpsCtx {
-    balance: coins
-    supply: coins
-}
-
 struct PendingProcessingResult {
     withdrawn: coins
     deposited: coins
@@ -197,13 +186,6 @@ struct (0b0) PoolStorageNotInitialized {
     poolId: uint32
 }
 
-fun PoolStorageNotInitialized.load(): PoolStorageNotInitialized {
-    return PoolStorageNotInitialized.fromCell(
-        contract.getData(),
-        { throwIfOpcodeDoesNotMatch: ErrorsPool.AlreadyInitialized },
-    );
-}
-
 struct (0b1) Storage {
     owner: address
     poolId: uint32 = 0
@@ -222,10 +204,6 @@ struct (0b1) Storage {
 
 type PoolStorage = PoolStorageNotInitialized | Storage
 
-struct WithdrawalStatus {
-    pendingWithdrawals: Cell<PendingOps>?
-}
-
 struct GetNominatorData {
     amount: coins               // Total ton amount,
     pendingDepositAmount: coins // Total ton amount
@@ -239,7 +217,7 @@ struct GetMinStake {
 }
 
 // https://github.com/ton-blockchain/ton/blob/master/crypto/block/block.tlb#L801-L808
-struct (0x01) PushishmentConfig {
+struct (0x01) PunishmentConfig {
     defaultFlatFine: coins
     defaultProportionalFine: uint32
     severityFlatMult: uint16
