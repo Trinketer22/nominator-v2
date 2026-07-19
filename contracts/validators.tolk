@@ -230,7 +230,12 @@ fun ValidatorsData.rotateRound(
             }
 
             var mainValidator = lazy self.mainValidatorData.load();
-            mainValidator.rotateVset(bitIdx, curVset.vsetHash, mutate curRound, mutate prevRound);
+            (updatedCur, updatedPrev) = mainValidator.rotateVset(
+                bitIdx,
+                curVset.vsetHash,
+                mutate curRound,
+                mutate prevRound,
+            );
             while (curReccord.isFound) {
                 var valData = curReccord.loadValue();
 

@@ -939,6 +939,34 @@ get fun `test anybody could rotate vset for all the validators`() {
     expect(validatorsAfter.vsetHash).toEqual(prevSetHash >> 128);
 }
 
+get fun `test anybody could rotate vset with main validator only`() {
+    val (elector, stakes, _limits) = setupElector();
+    val (pool, _owner, notOwner, validator, _nominators) = setupPoolWithNominators(40);
+
+    val testStake = stakes.minStake * 2;
+    var elections = announceElections(elector);
+
+    assertPoolNewStake(validator, pool, elector, elections, testStake);
+    var newSetHash = updateVsetHash();
+
+    val res = pool.sendUpdateVset(notOwner.address, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+
+    val curTime = testing.getNow();
+    expect(res).toHaveSuccessfulTx<UpdateVset>({ from: notOwner.address, to: pool.address });
+    val poolAfter = pool.getPoolData();
+    var validatorsAfter = lazy poolAfter.validators.load();
+    val prevRound = validatorsAfter.prevRound.load();
+    expect(validatorsAfter.vsetHash).toEqual(newSetHash >> 128);
+    expect(prevRound.roundIndex).toEqual(0);
+    expect(prevRound).toRotate({
+        pool: pool.address,
+        address: validatorsAfter.mainValidatorAddress,
+        vsetHash: newSetHash,
+        prevCount: 0,
+        time: curTime,
+    });
+}
+
 get fun `test vset can't rotate twice`() {
     val (elector, stakes, _limits) = setupElector();
     val (pool, owner, notOwner, validator, _nominators) = setupPoolWithNominators(40);
