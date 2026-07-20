@@ -262,10 +262,15 @@ fun ValidatorsData.rotateRound(
     };
 }
 
-fun RotationData.checkRecoverRequirements(self, heldFor: int) {
+fun RotationData.checkRecoverRequirements(self, heldFor: int): int {
     assert(self.rotationCount >= 2, ErrorsPool.RoundTooEarly);
-    assert(self.rotationCount > 2 ||
-    (blockchain.now() - self.rotationTime > heldFor + 60), ErrorsPool.RecoveryTimeTooEarly);
+    // For over 2 rounds, timestamp is irrelevant.
+    var expTimestamp = 0;
+    if (self.rotationCount == 2) {
+        expTimestamp = self.rotationTime + heldFor + 60;
+        assert(blockchain.now() > expTimestamp, ErrorsPool.RecoveryTimeTooEarly);
+    }
+    return expTimestamp;
 }
 
 fun RoundData.rotateRoundRecords(mutate self, proxyHash: uint256, curVset: int): bool {

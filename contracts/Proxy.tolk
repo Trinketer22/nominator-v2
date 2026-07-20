@@ -116,7 +116,31 @@ fun onInternalMessage(in: InMessage) {
                 );
             }
             RecoverStakeCompat => {
-                proxyMsg(elector, in.body, SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE, 0, true);
+                if (blockchain.now() > msg.queryId) {
+                    proxyMsg(
+                        elector,
+                        in.body,
+                        SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE,
+                        0,
+                        true,
+                    );
+                } else {
+                    val recoverStakeError = createMessage({
+                        bounce: false,
+                        dest: storage.pool,
+                        value: 0,
+                        body: RecoverStakeError {
+                            queryId: msg.queryId,
+                            answer: blockchain.now(),
+                            remaining: ProxyResponseData {
+                                validator: storage.validator,
+                                parity: storage.roundParity,
+                            }.toCell()
+                                .beginParse(),
+                        },
+                    });
+                    recoverStakeError.send(SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE);
+                }
             }
         }
     } else if (in.senderAddress == elector) {
