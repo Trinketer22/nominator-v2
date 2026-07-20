@@ -1079,8 +1079,15 @@ fun onBouncedMessage(in: InMessageBounced) {
 }
 
 get fun owner(): address {
-    val storage = lazy Storage.load();
-    return storage.owner;
+    val storage = lazy PoolStorage.load();
+    match (storage) {
+        PoolStorageNotInitialized => {
+            return storage.owner;
+        }
+        Storage => {
+            return storage.owner;
+        }
+    }
 }
 
 get fun get_pool_data(): Storage {
