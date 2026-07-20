@@ -1090,6 +1090,18 @@ get fun owner(): address {
     }
 }
 
+get fun get_pool_id(): uint32 {
+    val storage = lazy PoolStorage.load();
+    match (storage) {
+        PoolStorageNotInitialized => {
+            return storage.poolId;
+        }
+        Storage => {
+            return storage.poolId;
+        }
+    }
+}
+
 get fun get_pool_data(): Storage {
     return Storage.load();
 }
