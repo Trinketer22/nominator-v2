@@ -59,14 +59,22 @@ fun loadEmulationSnapshot(): bool {
     return testing.loadSnapshot(EMUL_SNAPSHOT_PATH);
 }
 
-fun loadPool(): Pool {
+fun loadPool(poolAddress: address): Pool {
     // EMUL-TEST-ONLY: restore emulator state from the previous `acton script` run.
     // No-op under `--net` (broadcast mode reads real on-chain state instead).
     loadEmulationSnapshot();
-    val owner = poolOwner();
-    val pool = poolFor(owner.address);
+
+    val pool = Pool.fromAddress(poolAddress);
     assert(scripts.isContractDeployed(pool.address), 150);
     return pool;
+}
+
+fun promptPoolAddress(): address {
+    val fromEnv = env<address>("POOL_ADDRESS");
+    if (fromEnv != null) {
+        return fromEnv;
+    }
+    return promptAddress("Pool address:", null, "EQ... / kQ... / Ef... / kf...");
 }
 
 fun ensureValidatorAdded(pool: Pool, validator: address): void {

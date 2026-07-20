@@ -9,7 +9,8 @@ import "@scripts/pool-utils"
 import "@wrappers/Pool.gen"
 
 fun main() {
-    val pool = loadPool();
+    val poolAddress = promptPoolAddress();
+    val pool = loadPool(poolAddress);
     val owner = poolOwner();
 
     val poolData = pool.getPoolData();

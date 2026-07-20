@@ -64,7 +64,8 @@ fun collectWhitelist(): map<address, bool> {
 }
 
 fun main() {
-    val pool = loadPool();
+    val poolAddress = promptPoolAddress();
+    val pool = loadPool(poolAddress);
     val owner = poolOwner();
 
     val whitelist = collectWhitelist();
