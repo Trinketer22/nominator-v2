@@ -195,6 +195,8 @@ fun ValidatorsData.rotateRound(
             );
             updatedCur = updatedCur || updCur;
             updatedPrev = updatedPrev || updPrev;
+        }
+        if (inValue > 0) {
             self.mainValidatorData = mainValidator.toCell();
         }
     } else {
@@ -215,10 +217,10 @@ fun ValidatorsData.rotateRound(
                 );
                 updatedCur = updatedCur || updCur;
                 updatedPrev = updatedPrev || updPrev;
-                if (inValue > 0) {
-                    valData.refundAmount += inValue;
-                    self.validators.set(address, valData);
-                }
+            }
+            if (inValue > 0) {
+                valData.refundAmount += inValue;
+                self.validators.set(address, valData);
             }
         } else {
             // Good Samaritan willing to spend TON to rotate for everybody
