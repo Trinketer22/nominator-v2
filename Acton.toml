@@ -37,6 +37,8 @@ exclude = ["tests/*.tolk"]
 [scripts]
 deploy-emulation = "acton script scripts/deploy.tolk"
 deploy-testnet = "acton script scripts/deploy.tolk --net testnet"
+init-pool-emulation = "acton script scripts/init-pool.tolk"
+init-pool-testnet = "acton script scripts/init-pool.tolk --net testnet"
 add-validator-emulation = "acton script scripts/add-validator.tolk"
 add-validator-testnet = "acton script scripts/add-validator.tolk --net testnet"
 remove-validator-emulation = "acton script scripts/remove-validator.tolk"
@@ -53,6 +55,8 @@ update-nominator-limits-emulation = "acton script scripts/update-nominator-limit
 update-nominator-limits-testnet = "acton script scripts/update-nominator-limits.tolk --net testnet"
 update-validator-limit-emulation = "acton script scripts/update-validator-limit.tolk"
 update-validator-limit-testnet = "acton script scripts/update-validator-limit.tolk --net testnet"
+pool-info-emulation = "acton script scripts/pool-info.tolk"
+pool-info-testnet = "acton script scripts/pool-info.tolk --net testnet"
 
 [import-mappings]
 acton = ".acton"
