@@ -371,6 +371,11 @@ All fees are defined in `contracts/fees.tolk`:
 | `NEW_VALIDATOR_FEE` | 0.1 TON | Gas budget deducted when adding a new validator. |
 | `PAYOUT_ITEM_BALANCE` | 0.05 TON | Forwarded to each PayoutItem on deployment. |
 | `REFUND_THRESHOLD` | 1 TON | Max forwarded TON for various refund/proxy gas buffers. |
+| `MAX_RECOVERY_VALUE` | 1 TON | Cap on the value forwarded from a `RecoverStakeOk` response when relaying recovered stake back to the pool. |
+| `MAX_ROTATION_VALUE` | 1 TON | Reserved cap for value forwarded during round-rotation-related relaying. |
+| `PROXY_INIT_VALUE` | 0.1 TON | Extra value attached on top of `PROXY_MIN_STORAGE` when deploying a validator proxy, to cover init gas. |
+
+In addition, `fees.tolk` defines a set of gas-budget *constants* (in gas units, not TON) used by compute-path checks: `NEW_STAKE_ERROR_GAS`, `RECOVER_STAKE_GAS`, `REFUND_BONUS_GAS`, and `RECOVER_STAKE_OK_GAS`. These are internal compute budgets, not user-facing fees.
 
 ---
 
@@ -380,8 +385,9 @@ The pool exposes several getters for off-chain queries:
 
 | Getter | Returns | Description |
 |--------|---------|-------------|
-| `owner()` | `address` | Pool owner address. |
-| `get_pool_data()` | `Storage` | Full pool state (owner, shares, round status, validator data, nominators, etc.). |
+| `owner()` | `address` | Pool owner address. Works in both uninitialized and active states. |
+| `get_pool_id()` | `uint32` | Pool ID. Works in both uninitialized and active states. |
+| `get_pool_data()` | `Storage` | Full pool state (owner, shares, round status, validator data, nominators, etc.). Only available after initialization. |
 | `get_nominator_data(nominatorAddress: int)` | `GetNominatorData` | Nominator info from a 256-bit address hash. Searches basechain (`wc=0`) and masterchain (`wc=-1`) for compatibility. |
 | `get_validator_info(address: address)` | `GetValidatorInfo` | Validator data, usage records for both rounds, and a **projected `roundIndex` and `rotated` flag** after running the same vset rotation check as `UpdateVset`. It also returns the **current `stakeable` amount** — the TON the validator is allowed to use in the current round — computed by applying the exact same validation checks as `NewStake` (round state, parity, usage, limits, balance, owner undercapitalization, etc). The goal is to let off-chain tools know whether a validator is actually eligible to stake and how much, without attempting a real transaction. Because this getter evaluates `rotateRound`, calling it may advance the round state in the same way a real `UpdateVset` message would. |
 | `get_validator_info_mtc(workchain: int, hash: int)` | `GetValidatorInfo` | Same as `get_validator_info`, but accepts workchain + hash for masterchain tooling compatibility. |
@@ -389,6 +395,7 @@ The pool exposes several getters for off-chain queries:
 | `get_limits_per_validator()` | `(coins, coins, coins)` | `(minTonPerValidator, maxTonPerValidator, maxRefundAmount)`. |
 | `get_nominator_minimal_stake()` | `GetMinStake` | `(minStake, minExpectedValue)` where `minExpectedValue = minStake + DEPOSIT_GAS`. |
 | `get_max_punishment(stake: int)` | `int` | Max punishment fine for a given stake amount, derived from config param 40. |
+| `get_pool_invariants()` | `PoolInvariants` | Audit/diagnostic getter that recomputes the cached nominator aggregates (share supply, pending deposits/withdrawals, nominator count) from the primary nominator map and reports whether they match the stored aggregates (`supplyMatch`, `pendingWithdrawalsMatch`, `pendingDepositsMatch`, `nmCountMatch`, `allMatch`). No assertion is performed — it reports only. Also exposes `nominatorsAmount` and a `projectedBalance` (`balance + stakeUsed - pendingDeposits - POOL_MIN_STORAGE`) for off-chain solvency monitoring, plus the recomputed values for debugging. |
 
 ---
 
