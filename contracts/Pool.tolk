@@ -53,6 +53,10 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
     assert(!self.halted, ErrorsPool.PoolIsHalted);
 
     var validators = self.validators.load();
+    val totalBalance = contract.getOriginalBalance() - value - self.pendingDeposits -
+    POOL_MIN_STORAGE +
+    validators.stakeUsed;
+    assert(totalBalance > self.nominatorsAmount, ErrorsPool.Insolvent);
     self.finalizeRound(validators.rotateRound(validators.mainValidatorAddress, self.roundIndex));
     self.validators = validators.toCell();
 
@@ -69,6 +73,7 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
 
             val hasPrevUsage = !prevRound.users.isEmpty();
 
+            val retryIdx = self.roundIndex + ROUNDS_DELAY;
             if (self.roundClosed || hasPrevUsage) {
                 var pendingDeposits = nominators.pendingDeposits == null
                     ? PendingOps { isWithdraw: false }
@@ -76,6 +81,9 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
                 val nmLookup = nominators.poolNominators.get(sender);
                 if (nmLookup.isFound) {
                     var oldPending = nmLookup.loadValue();
+                    assert(oldPending.depositIndex <=
+                    self.roundIndex, ErrorsPool.DepositAlreadyRequested);
+                    oldPending.depositIndex = retryIdx;
                     oldPending.pendingDeposit += incommingValue;
                     nominators.poolNominators.set(sender, oldPending);
                 } else {
@@ -87,11 +95,12 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
                                 share: 0,
                                 tonAmount: 0,
                                 pendingDeposit: incommingValue,
+                                depositIndex: retryIdx,
                             },
                         );
                     nominators.nmCount += 1;
                 }
-                pendingDeposits.addPending(sender, incommingValue, self.roundIndex);
+                pendingDeposits.addPending(sender, self.roundIndex);
                 nominators.pendingDeposits = pendingDeposits.toCell();
                 self.pendingDeposits += incommingValue;
             } else {
@@ -109,9 +118,6 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
 
                 if (nmLookup.isFound) {
                     var oldNm = nmLookup.loadValue();
-                    // Should we allow covering pendingDeposits here too?
-                    // Like if user still has something pending.
-                    // Smells like races
                     nominators.poolNominators.set(sender, oldNm.add(newNominator));
                 } else {
                     nominators.nmCount += 1;
@@ -120,6 +126,8 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
                 self.poolSupply += nmShare;
                 self.nominatorsAmount += incommingValue;
             }
+            assert(nominators.poolNominators.toLowLevelDict().depth() <=
+            MAX_NM_DEPTH, ErrorsPool.NominatorsTooDeep);
 
             self.nominators = nominators.toCell();
             self.save();
@@ -190,7 +198,6 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
             // Share delta has rounding favouring the nominator in range of 1 share point.
             // Since 1 share point is initially 1 nanogram at start, pools don't make as much return,
             // to make this rounding economically significant.
-            // Which is ok, is it?
             val shareDelta = calcShareCount(
                 rewardAmount,
                 self.poolSupply,
@@ -249,6 +256,8 @@ fun Storage.finalizeRound(mutate self, rotationStatus: RotationStatus): int {
                 contract.getOriginalBalance() - POOL_MIN_STORAGE,
                 self.poolSupply,
                 self.nominatorsAmount,
+                self.pendingDeposits,
+                self.pendingWithdrawals,
             );
             if (pendingStatus.withdrawn > 0) {
                 sentTotal += PAYOUT_ITEM_BALANCE;
@@ -313,11 +322,6 @@ fun handleNewStakeError(sender: address, value: int) {
     val (workchain, addrHash) = sender.getWorkchainAndHash();
     assert(workchain == MASTERCHAIN, ErrorsPool.NotFromProxy);
 
-    // var curRound = validators.curRound.load();
-    val _returnedVal = value - ton("1");
-
-    // 1 ton we're guaranteed to have for each NewStake
-    // var (stakeReturned, roundIdx,_roundDone) = validators.coverUsageByAddress(sender, returnedVal, true, ton("1"));
     val stakeReturned = validators.getUsageRecord(
         addrHash,
         RoundAllowance.InAllRounds as int,
@@ -468,33 +472,21 @@ fun onInternalMessage(in: InMessage) {
             val inValue = min(in.valueCoins, REFUND_THRESHOLD);
             val status = validators.rotateRound(in.senderAddress, storage.roundIndex, inValue);
             storage.finalizeRound(status);
-            /*
-            if(status.rotated && !status.closed) {
-                storage.roundIndex += 1;
-                if((storage.pendingDeposits | storage.pendingWithdrawals) > 0) {
-                    val availableBalance = contract.getOriginalBalance() - in.valueCoins - POOL_MIN_STORAGE;
-                    var nominators = storage.nominators.load();
-                    val processingRes = nominators.processPending(availableBalance, storage.poolSupply, storage.nominatorsAmount);
-                    storage.halted = processingRes.halted;
-                    if(!processingRes.halted) {
-                        storage.nominators = nominators.toCell();
-                    }
-                }
+            if (in.senderAddress != contract.getAddress()) {
+                reserveGramsOnBalance(
+                    REFUND_THRESHOLD,
+                    RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_AT_MOST,
+                );
+                refundError(
+                    in.senderAddress,
+                    {
+                        op: opcode<UpdateVset>(),
+                        errorCode: 0,
+                        queryId: msg.queryId,
+                    },
+                    SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS,
+                );
             }
-            */
-            reserveGramsOnBalance(
-                REFUND_THRESHOLD,
-                RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_AT_MOST,
-            );
-            refundError(
-                in.senderAddress,
-                {
-                    op: opcode<UpdateVset>(),
-                    errorCode: 0,
-                    queryId: msg.queryId,
-                },
-                SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS,
-            );
 
             storage.validators = validators.toCell();
 
@@ -600,7 +592,11 @@ fun onInternalMessage(in: InMessage) {
                     return;
                 }
 
+                // Validates the NewStake body
                 val newStake = NewStakeBody.fromSlice(msg.signedBody);
+                // stakeAt is uint32, so this assert is always true.
+                // Its real purpose is to use newStake, preventing the compiler
+                // from optimizing out the fromSlice call above.
                 assert(newStake.stakeAt >= 0, ErrorsPool.InvalidMessage);
 
                 val valLimit = valData.data.limit;
@@ -716,8 +712,6 @@ fun onInternalMessage(in: InMessage) {
             );
             val proxyAddress = getProxyAddress(proxyResp.validator, proxyResp.parity);
 
-            // If sender is not valida proxy, bounce?
-            // Otherwise there is nothing to do
             assert(in.senderAddress == proxyAddress, ErrorsPool.NotFromProxy);
         }
         NewStakeError => {
@@ -767,6 +761,7 @@ fun onInternalMessage(in: InMessage) {
                 val mcTimestamp = usageRec.rotation.checkRecoverRequirements(usageRec.heldFor);
                 //}
 
+                validators.updateValidatorByAddress(in.senderAddress, validatorData);
                 storage.validators = validators.toCell();
                 storage.save();
 
@@ -899,8 +894,8 @@ fun onInternalMessage(in: InMessage) {
 
             val profit = returned - stakeReturned.tonUsed;
 
-            validators.stakeUsed -= stakeReturned.tonUsed;
-            validators.activeSlots -= 1;
+            validators.stakeUsed = max(validators.stakeUsed - stakeReturned.tonUsed, 0);
+            validators.activeSlots = max(validators.activeSlots - 1, 0);
 
             // This should practically always be true.
             if (validator != null) {
@@ -934,26 +929,14 @@ fun onInternalMessage(in: InMessage) {
                 }
 
                 if (roundDone) {
-                    val rotationRes = validators.rotateRound(
-                        stakeReturned.validator,
-                        storage.roundIndex,
-                    );
-                    storage.finalizeRound(rotationRes);
-                    /*
-                    if(rotationRes.rotated && !rotationRes.closed) {
-                        if((storage.pendingDeposits | storage.pendingWithdrawals) > 0){
-                            var nominators = lazy storage.nominators.load();
-                            val status = nominators.processPending(contract.getOriginalBalance() -
-                            POOL_MIN_STORAGE, storage.poolSupply, storage.nominatorsAmount);
-                            storage.halted = status.halted;
-                            if(!status.halted) {
-                                storage.nominators = nominators.toCell();
-                            }
-                        }
-                        storage.roundIndex += 1;
-                    }
-                    storage.roundClosed = rotationRes.closed;
-                    */
+                    // Instead of rotating inplace, do it by chaining txs
+                    val rotateMsg = createMessage<UpdateVset>({
+                        bounce: false,
+                        value: ton("1"),
+                        dest: contract.getAddress(),
+                        body: UpdateVset { queryId: storage.roundIndex },
+                    });
+                    rotateMsg.send(SEND_MODE_REGULAR | SEND_MODE_IGNORE_ERRORS);
                 }
                 storage.validators = validators.toCell();
             }
@@ -986,7 +969,7 @@ fun onInternalMessage(in: InMessage) {
                     distribution.pendingShare,
                 );
                 assert(sharePrice > 0, ErrorsPool.NothingToWithdraw);
-                if (contract.getOriginalBalance() - POOL_MIN_STORAGE - in.valueCoins > sharePrice) {
+                if (contract.getOriginalBalance() - POOL_MIN_STORAGE > sharePrice) {
                     // I don't see this ever getting below zero, but we can't afford that to stay.
                     // And single instruction call we can afford.
                     storage.pendingWithdrawals = max(
@@ -1074,6 +1057,7 @@ fun onInternalMessage(in: InMessage) {
                 });
 
                 updatedNm.pendingDeposit = 0;
+                updatedNm.depositIndex = 0;
                 nominators.poolNominators.set(msg.owner, updatedNm);
                 storage.poolSupply += nmShare;
                 storage.pendingDeposits = max(storage.pendingDeposits - nmData.pendingDeposit, 0);
@@ -1098,8 +1082,27 @@ fun onBouncedMessage(in: InMessageBounced) {
 }
 
 get fun owner(): address {
-    val storage = lazy Storage.load();
-    return storage.owner;
+    val storage = lazy PoolStorage.load();
+    match (storage) {
+        PoolStorageNotInitialized => {
+            return storage.owner;
+        }
+        Storage => {
+            return storage.owner;
+        }
+    }
+}
+
+get fun get_pool_id(): uint32 {
+    val storage = lazy PoolStorage.load();
+    match (storage) {
+        PoolStorageNotInitialized => {
+            return storage.poolId;
+        }
+        Storage => {
+            return storage.poolId;
+        }
+    }
 }
 
 get fun get_pool_data(): Storage {
@@ -1120,7 +1123,6 @@ get fun get_proxy_address(validator: address): GetProxyAddressResult {
     };
 }
 
-// Should we retain compatability even though nominators can now be in both workchains?
 get fun get_nominator_data(nominatorAddress: int): GetNominatorData {
     var wc = 0;
 
@@ -1146,8 +1148,7 @@ get fun get_nominator_data(nominatorAddress: int): GetNominatorData {
                 amount: sharePrice,
                 pendingDepositAmount: pendingAmount,
                 withdrawFound: nmData.pendingWithdrawal > 0,
-                reward: sharePrice -
-                nmData.tonAmount,                      // Does it practically break the compatability?
+                reward: sharePrice - nmData.tonAmount,
             };
         }
 
@@ -1234,4 +1235,55 @@ get fun get_nominator_minimal_stake(): GetMinStake {
     val nominators = lazy storage.nominators.load();
 
     return { minStake: nominators.minStake, minExpectedValue: nominators.minStake + DEPOSIT_GAS };
+}
+
+// Recomputes cached aggregates from the primary nominator map and reports
+// whether they match the stored values. Read-only diagnostic — no assertion.
+// See PoolInvariants for the semantics of each field.
+get fun get_pool_invariants(): PoolInvariants {
+    val storage = lazy Storage.load();
+    val nominators = lazy storage.nominators.load();
+    val validators = lazy storage.validators.load();
+
+    var recomputedSupply: coins = 0;
+    var recomputedPendingWithdrawals: coins = 0;
+    var recomputedPendingDeposits: coins = 0;
+    var recomputedTonAmount: coins = 0;
+    var recomputedNmCount: int = 0;
+
+    var iter = nominators.poolNominators.findFirst();
+    while (iter.isFound) {
+        val nm = iter.loadValue();
+        recomputedSupply += nm.share;
+        recomputedPendingWithdrawals += nm.pendingWithdrawal;
+        recomputedPendingDeposits += nm.pendingDeposit;
+        recomputedTonAmount += nm.tonAmount;
+        recomputedNmCount += 1;
+        iter = nominators.poolNominators.iterateNext(iter);
+    }
+
+    val supplyMatch = recomputedSupply + recomputedPendingWithdrawals == storage.poolSupply;
+    val pendingWithdrawalsMatch = recomputedPendingWithdrawals == storage.pendingWithdrawals;
+    val pendingDepositsMatch = recomputedPendingDeposits == storage.pendingDeposits;
+    val nmCountMatch = recomputedNmCount == nominators.nmCount;
+    val allMatch = supplyMatch && pendingWithdrawalsMatch && pendingDepositsMatch && nmCountMatch;
+
+    val projectedBalance = contract.getOriginalBalance() + validators.stakeUsed -
+    storage.pendingDeposits -
+    POOL_MIN_STORAGE;
+
+    return PoolInvariants {
+        supplyMatch,
+        pendingWithdrawalsMatch,
+        pendingDepositsMatch,
+        nmCountMatch,
+        allMatch,
+        nominatorsAmount: storage.nominatorsAmount,
+        projectedBalance,
+        recomputedSupply,
+        recomputedPendingWithdrawals,
+        recomputedPendingDeposits,
+        recomputedNmCount,
+        recomputedTonAmount,
+    };
 }

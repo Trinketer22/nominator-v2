@@ -64,7 +64,7 @@ fun Nominator.withdrawShare(
     self.share -= shareCount;
 
     // 0 case can only be withdrawn in pending mode again
-    if (roundClosed || availableBalance < shareValue || shareValue == 0) {
+    if (roundClosed || availableBalance < shareValue || shareCount == 0) {
         assert(msgValue >= WITHDRAWAL_GAS, ErrorsPool.NotEnoughGas);
         // Means all the expenses are out of incommingValue
         reserveGramsOnBalance(
@@ -79,7 +79,7 @@ fun Nominator.withdrawShare(
             pendingWithdrawals = pending.load();
         }
 
-        pendingWithdrawals.addPending(owner, shareCount, roundIndex);
+        pendingWithdrawals.addPending(owner, roundIndex);
         // In ROUNDS_DELAY rounds should be guaranteed to withdraw, but
         // if this doesn't happen for whatever reason,
         // nominator will be able to retry.
@@ -135,21 +135,36 @@ fun NominatorsData.processPending(
     availableBalance: coins,
     supply: coins,
     total: coins,
+    pendingDeposits: coins,
+    pendingWithdrawals: coins,
 ): PendingProcessingResult {
     var halted = false;
     var withdrawn: coins = 0;
     var deposited: coins = 0;
 
+    // If there is remotely not enough balance to fail the chain start - halt
+    if (availableBalance < PAYOUT_ITEM_BALANCE * 3) {
+        return {
+            withdrawn,
+            deposited,
+            halted: true,
+        };
+    }
     if (self.pendingWithdrawals != null) {
         val withdrawals = self.pendingWithdrawals.load();
-        (withdrawn, halted) = withdrawals.process(availableBalance, supply, total);
+        (withdrawn, halted) = withdrawals.process(
+            availableBalance,
+            supply,
+            total,
+            pendingWithdrawals,
+        );
         if (!halted) {
             self.pendingWithdrawals = null;
         }
     }
     if (self.pendingDeposits != null && !halted) {
         val deposits = self.pendingDeposits.load();
-        (deposited, halted) = deposits.process(availableBalance, supply, total);
+        (deposited, halted) = deposits.process(availableBalance, supply, total, pendingDeposits);
         if (!halted) {
             self.pendingDeposits = null;
         }
@@ -164,16 +179,21 @@ fun Nominator.add(mutate self, nm: Nominator): Nominator {
     return self;
 }
 
-fun PendingOps.process(self, availableBalance: coins, supply: coins, total: coins): (coins, bool) {
+fun PendingOps.process(
+    self,
+    availableBalance: coins,
+    supply: coins,
+    total: coins,
+    opAggregate: coins,
+): (coins, bool) {
     var processedAmount: coins;
-
     if (self.isWithdraw) {
-        processedAmount = calcSharePrice(self.pendingAmount, total, supply);
+        processedAmount = calcSharePrice(opAggregate, total, supply);
         if (availableBalance < processedAmount) {
             return (0 as coins, true);
         }
     } else {
-        processedAmount = calcShareCount(self.pendingAmount, supply, total);
+        processedAmount = calcShareCount(opAggregate, supply, total);
     }
     // No balance check here, since that is an action we can execute
     // even at a cost of loosing fraction of storage reserve.
@@ -190,23 +210,15 @@ fun PendingOps.process(self, availableBalance: coins, supply: coins, total: coin
                     pendingShare: supply,
                 },
             },
-            // There is no way for it to fail under this conditions,
-            // however if i am wrong, it is better for it to skip the action,
-            // but keep the profits record, since this is most often triggered
-            // by the RecoverStakeOk.
-            //
-            // Deposits/withdrawal is an retryable action, even though it is unpleasent
-            // Especially for the depositors
         });
-        burnMessage.send(SEND_MODE_REGULAR | SEND_MODE_IGNORE_ERRORS);
+        burnMessage.send(SEND_MODE_REGULAR | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
     }
     return (processedAmount, false);
 }
 
-fun PendingOps.addPending(mutate self, owner: address, amount: int, roundIndex: int): uint64 {
+fun PendingOps.addPending(mutate self, owner: address, roundIndex: int): uint64 {
     // Repilcating the mechanics of liquid staking payout
     self.index += 1;
-    self.pendingAmount += amount;
     if (self.nextStateInit == null) {
         self.nextStateInit = calculateItemStateInit(
             self.index,

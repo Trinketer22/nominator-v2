@@ -39,7 +39,6 @@ fun ValidatorsData.coverUsageByAddress(
     var round = firstRound.load();
     val (wc, addrHash) = address.getWorkchainAndHash();
     // Do nothing for basechain addresses
-    // Bit of a hack, but it's okay?
     if (wc == BASECHAIN) {
         return (null, round.roundIndex, round.users.isEmpty());
     }
@@ -170,7 +169,6 @@ fun ValidatorsData.rotateRound(
                 returned: prevRound.returned,
                 roundIndex: prevRound.roundIndex,
             };
-            // self.mainValidatorData = mainData.toCell();
             self.prevRound = self.curRound;
             // Reload the prev round only here
             prevRound = self.curRound.load();
@@ -197,6 +195,8 @@ fun ValidatorsData.rotateRound(
             );
             updatedCur = updatedCur || updCur;
             updatedPrev = updatedPrev || updPrev;
+        }
+        if (inValue > 0) {
             self.mainValidatorData = mainValidator.toCell();
         }
     } else {
@@ -217,10 +217,10 @@ fun ValidatorsData.rotateRound(
                 );
                 updatedCur = updatedCur || updCur;
                 updatedPrev = updatedPrev || updPrev;
-                if (inValue > 0) {
-                    valData.refundAmount += inValue;
-                    self.validators.set(address, valData);
-                }
+            }
+            if (inValue > 0) {
+                valData.refundAmount += inValue;
+                self.validators.set(address, valData);
             }
         } else {
             // Good Samaritan willing to spend TON to rotate for everybody
@@ -230,7 +230,12 @@ fun ValidatorsData.rotateRound(
             }
 
             var mainValidator = lazy self.mainValidatorData.load();
-            mainValidator.rotateVset(bitIdx, curVset.vsetHash, mutate curRound, mutate prevRound);
+            (updatedCur, updatedPrev) = mainValidator.rotateVset(
+                bitIdx,
+                curVset.vsetHash,
+                mutate curRound,
+                mutate prevRound,
+            );
             while (curReccord.isFound) {
                 var valData = curReccord.loadValue();
 

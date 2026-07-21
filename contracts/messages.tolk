@@ -81,13 +81,6 @@ struct (0xf374484c) NewStakeOk {
     remaining: RemainingBitsAndRefs
 }
 
-/*
-struct ProxyInfo = {
-    validator: address,
-    parity: bool
-}
-*/
-
 struct ProxyResponseData {
     validator: address
     parity: bool

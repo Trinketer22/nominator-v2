@@ -3,7 +3,7 @@
 // Source mapping:
 // - Pool root storage: PoolStorageNotInitialized / Storage (contracts/types.tolk)
 // - Pool nested storage: ValidatorsData, NominatorsData, PendingOps, RoundData,
-//   MainValidatorData, Validator, Nominator, TonUsage, RotationData
+//   Validator, Nominator, TonUsage, RotationData
 // - Payout item storage: ItemStorageNotInitialized / ItemStorageInitialized,
 //   plus StaticData
 // - Proxy storage: ProxyStorage
@@ -72,27 +72,23 @@ round_data$_
   used:Grams
   returned:Grams
   round_index:uint64
-  users:(HashmapE 267 TonUsage)
+  users:(HashmapE 256 TonUsage)
 = RoundData;
 
 validator$_
   is_banned:Bool
   usage_state:uint2
-  even_proxy:MsgAddressIntOrNone
-  odd_proxy:MsgAddressIntOrNone
+  even_proxy:(Maybe uint256)
+  odd_proxy:(Maybe uint256)
   limit:(Maybe ValidatorLimit)
   refund_amount:Grams
   round_parity:RoundAllowance
 = Validator;
 
-main_validator_data$_
-  vset_hash:uint128
-  validator:Validator
-= MainValidatorData;
-
 validators_data$_
   main_validator_address:MsgAddressInt
-  main_validator_data:^MainValidatorData
+  vset_hash:uint128
+  main_validator_data:^Validator
   active_validators:uint8
   active_slots:uint9
   stake_used:Grams
@@ -109,6 +105,7 @@ nominator$_
   ton_amount:Grams
   pending_deposit:Grams
   pending_withdrawal:Grams
+  deposit_index:uint64
   withdrawal_index:uint64
 = Nominator;
 
@@ -119,7 +116,6 @@ pending_ops$_
   next_state_init:(Maybe ^Cell)
   index:uint64
   is_withdraw:Bool
-  pending_amount:Grams
 = PendingOps;
 
 nominators_data$_
@@ -129,6 +125,7 @@ nominators_data$_
   pool_nominators:(HashmapE 267 Nominator)
   pending_deposits:(Maybe ^PendingOps)
   pending_withdrawals:(Maybe ^PendingOps)
+  nominators_whitelist:(HashmapE 267 Bool)
 = NominatorsData;
 
 pool_storage_not_initialized$0

@@ -24,6 +24,15 @@ import "@wrappers/PayoutItem.gen"
 import "@wrappers/Pool.gen"
 import "@wrappers/Proxy.gen"
 
+fun assertPoolInvariants(pool: Pool) {
+    val inv = pool.getPoolInvariants();
+    expect(inv.supplyMatch).toBeTrue();
+    expect(inv.pendingWithdrawalsMatch).toBeTrue();
+    expect(inv.pendingDepositsMatch).toBeTrue();
+    expect(inv.nmCountMatch).toBeTrue();
+    expect(inv.allMatch).toBeTrue();
+}
+
 fun assertPoolDepositInstant(pool: Pool, from: address, amount: coins) {
     val balanceBefore = testing.getAccountBalance(pool.address);
     val poolBefore = pool.getPoolData();
@@ -106,7 +115,9 @@ fun waitTillRecovery(pool: Pool, validator: address, elector: address): GetValid
 
 fun waitAndRecoverStake(pool: Pool, validator: address, elector: address): SendResultList {
     waitTillRecovery(pool, validator, elector);
-    return pool.sendRecoverStakeCompat(validator, DEFAULT_QUERY_ID, { value: ton("1") });
+    val res = pool.sendRecoverStakeCompat(validator, DEFAULT_QUERY_ID, { value: ton("1") });
+    assertPoolInvariants(pool);
+    return res;
 }
 
 fun setupPoolWithNominators(n: int = 10): (Pool, Treasury, Treasury, address, lisp_list<address>) {
@@ -126,6 +137,8 @@ fun setupPoolWithNominators(n: int = 10): (Pool, Treasury, Treasury, address, li
     val poolAfter = pool.getPoolData();
     val nominators = poolAfter.nominators.load();
     expect(nominators.nmCount).toEqual(n);
+
+    assertPoolInvariants(pool);
 
     return (pool, owner, notOwner, validator, newNominators);
 }
@@ -363,6 +376,8 @@ fun runRound(
         expect(stakeData.rotation.rotationTime).toEqual(testing.getNow());
         expect(stakeData.rotation.rotationCount).toEqual(curStake.rotation.rotationCount + 1);
     }
+
+    assertPoolInvariants(pool);
 }
 
 fun setupPoolWithProfits(nominatorCount: int, roundsRun: int): (
@@ -468,6 +483,9 @@ fun assertDelayedOperation(
             tonAmount = WITHDRAWAL_GAS;
         }
         operationDelta = rawDataBefore.share;
+        if (operationDelta == 0) {
+            operationDelta = rawDataBefore.pendingWithdrawal;
+        }
         incomingValue = tonAmount;
         comment = "w".beginParse();
         resultName = "Withdrawal request delayed";
@@ -558,13 +576,6 @@ fun assertDelayedOperation(
     }
 
     expect(opsAfter != null).toBeTrue();
-    val opsParsed = opsAfter!.load();
-
-    if (operations != null) {
-        expect(opsParsed.pendingAmount).toEqual(operations.pendingAmount + operationDelta);
-    } else {
-        expect(opsParsed.pendingAmount).toEqual(operationDelta);
-    }
 
     val rawDataAfter = nmAfter.poolNominators.mustGet(nm, 42);
     if (isWithdrawal) {
@@ -579,9 +590,11 @@ fun assertDelayedOperation(
     } else {
         expect(poolAfter.pendingDeposits).toEqual(poolBefore.pendingDeposits + incomingValue);
         expect(rawDataAfter.pendingDeposit).toEqual(rawDataBefore.pendingDeposit + incomingValue);
+        expect(rawDataAfter.depositIndex).toEqual(poolAfter.roundIndex + ROUNDS_DELAY);
     }
 
-    return (newPayout, rawDataBefore.share);
+    assertPoolInvariants(pool);
+    return (newPayout, operationDelta);
 }
 
 fun asssertSimpleWithdawal(pool: Pool, nm: address) {
@@ -629,6 +642,8 @@ fun asssertSimpleWithdawal(pool: Pool, nm: address) {
         to: nm,
         value: testValue + nmData.amount - withdrawalCompute.gasFees - fwdFees,
     });
+
+    assertPoolInvariants(pool);
 }
 
 fun getMaxOwnerShare(pool: Pool): int {

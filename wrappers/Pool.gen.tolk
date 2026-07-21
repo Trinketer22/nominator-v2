@@ -369,6 +369,10 @@ fun Pool.owner(self): address {
     return net.runGetMethod(self.address, "owner");
 }
 
+fun Pool.getPoolId(self): uint32 {
+    return net.runGetMethod(self.address, "get_pool_id");
+}
+
 fun Pool.getPoolData(self): Storage {
     return net.runGetMethod(self.address, "get_pool_data");
 }
@@ -395,4 +399,8 @@ fun Pool.getLimitsPerValidator(self): (coins, coins, coins) {
 
 fun Pool.getNominatorMinimalStake(self): GetMinStake {
     return net.runGetMethod(self.address, "get_nominator_minimal_stake");
+}
+
+fun Pool.getPoolInvariants(self): PoolInvariants {
+    return net.runGetMethod(self.address, "get_pool_invariants");
 }

@@ -1,5 +1,8 @@
 // Generated from contracts/messages.tolk
 // Includes dependent serialized types from contracts/types.tolk
+//
+// Note: Tolk `RemainingBitsAndRefs` is represented as `Cell` (the remaining
+// bits and refs of the current slice), not `^Cell` (a reference).
 
 bool_false$0 = Bool;
 bool_true$1 = Bool;
@@ -70,6 +73,7 @@ nominators_settings$_
   max_nominators:uint10
   min_stake:Grams
   min_withdrawable_rewards:Grams
+  whitelist:(HashmapE 267 Bool)
 = NominatorsSettings;
 
 distribution$_ pending_share:Grams pending_coins:Grams = Distribution;
@@ -106,7 +110,7 @@ init_pool_message#73cb21e6
 
 init_pool_success#d9478669 query_id:uint64 = InitPoolSuccess;
 
-text_comment#00000000 comment:^Cell = TextComment;
+text_comment#00000000 comment:Cell = TextComment;
 
 deposit_message#00000064 = DepositMessage;
 deposit_success#1d462054 query_id:uint64 = DepositSuccess;
@@ -125,7 +129,7 @@ update_vset#00000007 query_id:uint64 = UpdateVset;
 new_stake#4e73744b
   query_id:uint64
   value:Grams
-  signed_body:^Cell
+  signed_body:Cell
 = NewStake;
 
 new_stake_body$_
@@ -138,7 +142,7 @@ new_stake_body$_
 
 new_stake_elector#4e73744b
   query_id:uint64
-  body:^Cell
+  body:Cell
 = NewStakeElector;
 
 new_stake_direct#4e73744b
@@ -153,13 +157,13 @@ new_stake_direct#4e73744b
 new_stake_ok#f374484c
   query_id:uint64
   answer:uint32
-  remaining:^Cell
+  remaining:Cell
 = NewStakeOk;
 
 new_stake_error#ee6f454c
   query_id:uint64
   reason:uint32
-  remaining:^Cell
+  remaining:Cell
 = NewStakeError;
 
 recover_stake_compat#47657424 query_id:uint64 = RecoverStakeCompat;
@@ -172,13 +176,13 @@ recover_stake_unrestricted#47657442
 
 recover_stake_ok#f96f7324
   query_id:uint64
-  remaining:^Cell
+  remaining:Cell
 = RecoverStakeOk;
 
 recover_stake_error#fffffffe
   query_id:uint64
   answer:uint32
-  remaining:^Cell
+  remaining:Cell
 = RecoverStakeError;
 
 init_proxy#7e522889

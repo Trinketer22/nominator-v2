@@ -81,7 +81,7 @@ fun getConfigAddress(): address {
     return address.fromWorkchainAndHash(MASTERCHAIN, configHash);
 }
 
-fun updateVsetHash(): uint256 {
+fun updateVsetHash(elector: address? = null): uint256 {
     var config = testing.getConfig();
     var currentVset = ValidaorSet.fromCell(config.getParamRaw(CUR_VSET_IDX));
 
@@ -89,6 +89,10 @@ fun updateVsetHash(): uint256 {
     val vsetCell = currentVset.toCell();
     config.setParamRaw(CUR_VSET_IDX, vsetCell);
     testing.setConfig(config);
+    if (elector != null) {
+        testing.runTickTock(elector, true);
+        testing.runTickTock(elector, false);
+    }
     return vsetCell.hash();
 }
 
@@ -198,7 +202,11 @@ fun setupElector(): (ElectorCode, StakesConfig, ParticipantsConfig) {
 fun setExpiredVset(config: BlockchainConfigMap) {
     val curVset = ValidaorSet.fromCell(config.getParamRaw(CUR_VSET_IDX)!);
     val electionTiming = getElectionsTiming();
-    testing.setNow(curVset.utimeUntil - electionTiming.endBefore - 100);
+    val expTs = curVset.utimeUntil - electionTiming.endBefore - 100;
+    val curTime = testing.getNow();
+    if (curTime < expTs) {
+        testing.setNow(expTs);
+    }
 }
 
 fun rotateVset(elector: address, reward: int) {

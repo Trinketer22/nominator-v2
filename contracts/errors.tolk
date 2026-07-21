@@ -18,14 +18,17 @@ enum ErrorsPool {
     NotOwner = 200
     OwnerNotFound
     WithdrawalAlreadyRequested
+    DepositAlreadyRequested
     NothingToWithdraw
     NothingToDeposit
     RewardIsBelowMinimal
     DepositNotFound
     DepositNotAllowed
+    Insolvent
     NotEnoughGas = 300
     TooManyNominators = 400
     TooManyValidators
+    NominatorsTooDeep
     InvalidNewStakeMessage = 500
     RoundTooEarly = 501
     RecoveryTimeTooEarly = 502
