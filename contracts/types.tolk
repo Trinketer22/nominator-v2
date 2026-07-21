@@ -25,6 +25,7 @@ struct ValidatorInitSettings {
     minTonPerValidator: coins
     mainValidatorAddress: address
     maxRefund: coins
+    refundBonus: uint33 = ton("1") as int
 }
 
 struct RoundInfo {

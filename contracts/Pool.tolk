@@ -421,6 +421,7 @@ fun onInternalMessage(in: InMessage) {
             vsetHash: getCurVset().vsetHash >> 128,
             mainValidatorData: mainValidator.toCell(),
             maxRefundAmount: msg.maxRefund,
+            refundBonus: msg.refundBonus,
         };
         assertStakingLimit(msg.minTonPerValidator, msg.maxTonPerValidator);
         val newStorage = Storage {

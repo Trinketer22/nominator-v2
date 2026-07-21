@@ -328,6 +328,7 @@ fun Pool.sendInitPoolMessage(
     maxTonPerValidator: coins,
     minTonPerValidator: coins,
     maxRefund: coins,
+    refundBonus: uint33,
     nominatorsSettings: NominatorsSettings,
     config: SendParams = {},
 ): SendResultList {
@@ -344,6 +345,7 @@ fun Pool.sendInitPoolMessage(
             maxTonPerValidator,
             minTonPerValidator,
             maxRefund,
+            refundBonus,
             nominatorsSettings: nominatorsSettings.toCell(),
         },
     });

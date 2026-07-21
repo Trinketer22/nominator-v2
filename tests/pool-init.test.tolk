@@ -23,6 +23,7 @@ get fun `test should deploy with specified parameters`(
     minStake: coins,
     minReward: coins,
     refund: coins,
+    refundBonus: uint33,
     ownerShare: int,
     maxNominators: int,
 ) {
@@ -57,6 +58,7 @@ get fun `test should deploy with specified parameters`(
             mainValidator: validator,
             limit: null,
             maxRefund: refund,
+            refundBonus: refundBonus,
             nominatorsSettings: NominatorsSettings {
                 maxNominators: boundedNm,
                 minStake,
@@ -95,6 +97,7 @@ get fun `test should deploy with specified parameters`(
     expect(validatorsAfter.maxTonPerValidator).toEqual(boundMax);
     expect(validatorsAfter.minTonPerValidator).toEqual(boundMin);
     expect(validatorsAfter.maxRefundAmount).toEqual(refund);
+    expect(validatorsAfter.refundBonus).toEqual(refundBonus);
 
     val nominatorsAfter = poolAfter.nominators.load();
     expect(poolAfter.maxNominators).toEqual(boundedNm);
@@ -135,6 +138,7 @@ get fun `test should only allow init from the owner address`(
     minStake: coins,
     minReward: coins,
     refund: coins,
+    refundBonus: uint33,
     ownerShare: int,
     maxNominators: int,
 ) {
@@ -160,6 +164,7 @@ get fun `test should only allow init from the owner address`(
             mainValidator: validator,
             limit: null,
             maxRefund: refund,
+            refundBonus: refundBonus,
             nominatorsSettings: NominatorsSettings {
                 maxNominators: boundedNm,
                 minStake,
