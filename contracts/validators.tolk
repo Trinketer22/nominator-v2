@@ -141,7 +141,6 @@ fun ValidatorsData.rotateRound(
     mutate self,
     address: address,
     roundIndex: int,
-    inValue: coins = 0,
 ): RotationStatus {
     val curVset = getCurVset();
 
@@ -181,7 +180,6 @@ fun ValidatorsData.rotateRound(
     val bitIdx = toBitIndex(roundIndex);
     if (isMain) {
         var mainValidator = lazy self.mainValidatorData.load();
-        mainValidator.refundAmount += inValue;
         if (mainValidator.usageState > 0) {
             if (curRound == null) {
                 curRound = self.curRound.load();
@@ -195,9 +193,6 @@ fun ValidatorsData.rotateRound(
             );
             updatedCur = updatedCur || updCur;
             updatedPrev = updatedPrev || updPrev;
-        }
-        if (inValue > 0) {
-            self.mainValidatorData = mainValidator.toCell();
         }
     } else {
         val myValidator = self.validators.get(address);
@@ -217,10 +212,6 @@ fun ValidatorsData.rotateRound(
                 );
                 updatedCur = updatedCur || updCur;
                 updatedPrev = updatedPrev || updPrev;
-            }
-            if (inValue > 0) {
-                valData.refundAmount += inValue;
-                self.validators.set(address, valData);
             }
         } else {
             // Good Samaritan willing to spend TON to rotate for everybody

@@ -495,6 +495,28 @@ get fun `test reward withdrawal should be rejected when share delta is zero`() {
     ).toHaveRefund<TextComment>({ from: pool.address, to: testNm.address, error: ErrorsPool.NothingToWithdraw, previousState: stateBefore });
 }
 
+get fun `test updateVset doesn't accumulate any refund amount`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, owner, _notOwner, validator, _nominators) = setupPoolWithNominators(40);
+
+    val testValidator = setupRandomValidator(pool, owner.address);
+    val poolBefore = pool.getPoolData();
+    val validators = lazy poolBefore.validators.load();
+
+    var validatorsSet: array<address> = [validator, testValidator];
+
+    val elections = announceElections(elector);
+    repeat (2) {
+        val curValidator = validatorsSet.pop();
+        assertPoolNewStake(curValidator, pool, elector, elections, stakes.minStake * 2);
+        val stateBefore = pool.getValidatorInfo(curValidator);
+        expect(stateBefore.validator.refundAmount).toBeGreater(0);
+        pool.sendUpdateVset(curValidator, DEFAULT_QUERY_ID, { value: ton("10") });
+        val stateAfter = pool.getValidatorInfo(curValidator);
+        expect(stateAfter.validator.refundAmount).toEqual(stateBefore.validator.refundAmount);
+    }
+}
+
 get fun `test if validator refund amount is clamped by maxRefundAmount + refundBonus in profit calculation`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(40);
@@ -522,15 +544,25 @@ get fun `test if validator refund amount is clamped by maxRefundAmount + refundB
         true,
     );
 
-    // And now validator starts spamming updateVset
-    repeat (10) {
-        // One ton per request will be accrued
-        pool.sendUpdateVset(testValidator, DEFAULT_QUERY_ID, { value: ton("10") });
-    }
+    // Now let's update maxRefund to some low value
+    val (minStake, maxStake, _maxRefund, refundBonus) = pool.getLimitsPerValidator();
+    val newRefund = ton("0.25");
+    val updRes = pool.sendUpdateLimits(
+        owner.address,
+        DEFAULT_QUERY_ID,
+        GlobalValidatorsLimit {
+            minTonPerValidator: minStake,
+            maxTonPerValidator: maxStake,
+            maxRefund: newRefund,
+            refundBonus: refundBonus,
+        },
+        { value: DEFAULT_MSG_VALUE },
+    );
+    expect(pool.getLimitsPerValidator().2).toEqual(newRefund);
 
     val valInfo = pool.getValidatorInfo(testValidator);
     val tonUsed = valInfo.usage.prevRoundUsage!.usage.tonUsed;
-    expect(valInfo.validator.refundAmount).toBeGreater(validators.maxRefundAmount);
+    expect(valInfo.validator.refundAmount).toBeGreater(newRefund);
 
     val res = waitAndRecoverStake(pool, testValidator, elector.address);
 
@@ -544,7 +576,7 @@ get fun `test if validator refund amount is clamped by maxRefundAmount + refundB
 
     val expectedReturn = recoveredValue - calculateGasFee(BASECHAIN, RECOVER_STAKE_OK_GAS) -
     validators.refundBonus -
-    validators.maxRefundAmount;
+    newRefund;
 
     val expectedProfit = expectedReturn - tonUsed;
 
@@ -553,6 +585,10 @@ get fun `test if validator refund amount is clamped by maxRefundAmount + refundB
     expect(poolAfter.nominatorsAmount as int).toBeApproxEqAbs(
         poolBefore.nominatorsAmount + expectedProfit / 2,
         1,
+    );
+    // MAX_RECOVERY_VALUE accumulated from recovery
+    expect(pool.getValidatorInfo(testValidator).validator.refundAmount).toEqual(
+        valInfo.validator.refundAmount + MAX_RECOVERY_VALUE - newRefund,
     );
 
     // At round info
@@ -569,7 +605,7 @@ get fun `test if validator refund amount is clamped by maxRefundAmount + refundB
 
     val fwdFee = testing.getConfig().getMsgForwardPrices(testValidator.getWorkchain()).lumpPrice;
     expect(getInternalMessageValue(refundMsg.info).grams as int).toBeApproxEqAbs(
-        validators.maxRefundAmount + validators.refundBonus - fwdFee,
+        newRefund + validators.refundBonus - fwdFee,
         ton("0.006"),
     );
 

@@ -469,12 +469,12 @@ fun onInternalMessage(in: InMessage) {
         }
         UpdateVset => {
             var validators = storage.validators.load();
-            val inValue = min(in.valueCoins, REFUND_THRESHOLD);
-            val status = validators.rotateRound(in.senderAddress, storage.roundIndex, inValue);
+            val status = validators.rotateRound(in.senderAddress, storage.roundIndex);
             storage.finalizeRound(status);
             if (in.senderAddress != contract.getAddress()) {
+                // Reserve pre-msg balance. Can't fail
                 reserveGramsOnBalance(
-                    REFUND_THRESHOLD,
+                    0,
                     RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_AT_MOST,
                 );
                 refundError(
