@@ -65,7 +65,7 @@ fun printProjectedRotationInfo(label: string, usage: ValidatorUsageStats) {
 
 fun printPoolInfo(pool: Pool) {
     val data = pool.getPoolData();
-    val (minTon, maxTon, maxRefund) = pool.getLimitsPerValidator();
+    val (minTon, maxTon, maxRefund, refundBonus) = pool.getLimitsPerValidator();
     val balance = testing.getAccountBalance(pool.address);
     val minStake = pool.getNominatorMinimalStake();
 
@@ -86,6 +86,7 @@ fun printPoolInfo(pool: Pool) {
     println("Min TON/validator: {:gram}", minTon);
     println("Max TON/validator: {:gram}", maxTon);
     println("Max refund:        {:gram}", maxRefund);
+    println("Refund bonus:      {:gram}", refundBonus);
     println("--- Nominator settings ---");
     println("Min stake:         {:gram}", minStake.minStake);
     println("Min expected value:{:gram}", minStake.minExpectedValue);

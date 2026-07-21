@@ -393,7 +393,7 @@ fun Pool.getValidatorInfoMtc(self, workchain: int, hash: int): GetValidatorInfo 
     return net.runGetMethod(self.address, "get_validator_info_mtc", [workchain, hash]);
 }
 
-fun Pool.getLimitsPerValidator(self): (coins, coins, coins) {
+fun Pool.getLimitsPerValidator(self): (coins, coins, coins, int) {
     return net.runGetMethod(self.address, "get_limits_per_validator");
 }
 

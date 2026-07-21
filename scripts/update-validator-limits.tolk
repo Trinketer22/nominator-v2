@@ -16,7 +16,7 @@ fun main() {
     val pool = loadPool(poolAddress);
     val owner = poolOwner();
 
-    val (curMin, curMax, curRefund) = pool.getLimitsPerValidator();
+    val (curMin, curMax, curRefund, curRefundBonus) = pool.getLimitsPerValidator();
 
     val minTonPerValidator = promptCoins(
         "MIN_TON_PER_VALIDATOR",
@@ -33,20 +33,31 @@ fun main() {
         "Max refund to validator:",
         coinsToTonString(curRefund),
     );
+    val refundBonus = promptCoins(
+        "REFUND_BONUS",
+        "Refund bonus to validator:",
+        coinsToTonString(curRefundBonus),
+    );
     val queryId = (env<int>("QUERY_ID") ?? 1) as uint64;
     val value = promptCoins("MSG_VALUE", "Message value (TON):", "1");
 
     println(
-        "Updating global validator limits: min={:gram} max={:gram} refund={:gram}",
+        "Updating global validator limits: min={:gram} max={:gram} refund={:gram} bonus={:gram}",
         minTonPerValidator,
         maxTonPerValidator,
         maxRefund,
+        refundBonus,
     );
 
     val res = pool.sendUpdateLimits(
         owner.address,
         queryId,
-        GlobalValidatorsLimit { minTonPerValidator, maxTonPerValidator, maxRefund },
+        GlobalValidatorsLimit {
+            minTonPerValidator,
+            maxTonPerValidator,
+            maxRefund,
+            refundBonus: refundBonus as uint33,
+        },
         { value },
     );
 
@@ -54,8 +65,10 @@ fun main() {
         Assert.fail("UpdateLimits (GlobalValidatorsLimit) message was not accepted by network");
     }
 
-    val (newMin, newMax, newRefund) = pool.getLimitsPerValidator();
-    val ok = newMin == minTonPerValidator && newMax == maxTonPerValidator && newRefund == maxRefund;
+    val (newMin, newMax, newRefund, newRefundBonus) = pool.getLimitsPerValidator();
+    val ok = newMin == minTonPerValidator && newMax == maxTonPerValidator &&
+    newRefund == maxRefund &&
+    newRefundBonus == refundBonus;
 
     if (ok) {
         println("OK: global validator limits updated on pool {}", pool.address);

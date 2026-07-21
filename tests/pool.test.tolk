@@ -495,7 +495,7 @@ get fun `test reward withdrawal should be rejected when share delta is zero`() {
     ).toHaveRefund<TextComment>({ from: pool.address, to: testNm.address, error: ErrorsPool.NothingToWithdraw, previousState: stateBefore });
 }
 
-get fun `test if validator refund amount is clamped by maxRefundAmount in profit calculation`() {
+get fun `test if validator refund amount is clamped by maxRefundAmount + refundBonus in profit calculation`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(40);
 
@@ -543,7 +543,7 @@ get fun `test if validator refund amount is clamped by maxRefundAmount in profit
     val recoveredValue = getInternalMessageValue(recoveryMsg.info).grams;
 
     val expectedReturn = recoveredValue - calculateGasFee(BASECHAIN, RECOVER_STAKE_OK_GAS) -
-    calculateGasFee(BASECHAIN, REFUND_BONUS_GAS) -
+    validators.refundBonus -
     validators.maxRefundAmount;
 
     val expectedProfit = expectedReturn - tonUsed;
@@ -567,9 +567,10 @@ get fun `test if validator refund amount is clamped by maxRefundAmount in profit
     expect(refundTx).toBeNotNull();
     val refundMsg = refundTx!.loadInMsg<StakeReturned>();
 
+    val fwdFee = testing.getConfig().getMsgForwardPrices(testValidator.getWorkchain()).lumpPrice;
     expect(getInternalMessageValue(refundMsg.info).grams as int).toBeApproxEqAbs(
-        validators.maxRefundAmount,
-        ton("0.01"),
+        validators.maxRefundAmount + validators.refundBonus - fwdFee,
+        ton("0.006"),
     );
 
     val recoveryBody = refundMsg.loadBody() as StakeReturned;
@@ -611,13 +612,14 @@ get fun `test if pool received loss, nominators stake should decrease in price`(
 
     val used = valInfo.usage.prevRoundUsage!.usage.tonUsed;
     val returnedStake = mulDivFloor(used, 9700, 10000);
+    val validators = poolBefore.validators.load();
     val expectedLoss = returnedStake -
     min(
         valInfo.validator.refundAmount,
-        poolBefore.validators.load().maxRefundAmount,
+        validators.maxRefundAmount,
     ) -
     calculateGasFee(BASECHAIN, RECOVER_STAKE_OK_GAS) -
-    calculateGasFee(BASECHAIN, REFUND_BONUS_GAS) -
+    validators.refundBonus -
     used;
 
     expect(expectedLoss).toBeLess(0);

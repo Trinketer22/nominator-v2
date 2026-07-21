@@ -861,7 +861,7 @@ fun onInternalMessage(in: InMessage) {
             var validators = lazy storage.validators.load();
 
             // Since round map has proxy address as a key, we don't need state->address calculation
-            val refundBonus = calculateGasFee(BASECHAIN, REFUND_BONUS_GAS);
+            val refundBonus = validators.refundBonus;
             var returned = in.valueCoins -
             calculateGasFee(
                 BASECHAIN,
@@ -915,11 +915,8 @@ fun onInternalMessage(in: InMessage) {
 
                 // Who we owe are all forgiven
                 validator.data.usageState &= ~parityToMask(proxyData.parity);
-                if (validator.data.usageState == 0) {
-                    validator.data.refundAmount = 0;
-                } else {
-                    validator.data.refundAmount -= refundAmount;
-                }
+                // Preserve the unused even if validator fully exits the pool
+                validator.data.refundAmount = max(validator.data.refundAmount - refundAmount, 0);
                 validators.updateValidatorByAddress(stakeReturned.validator, validator);
 
                 if (storage.nominatorsAmount > 0) {
@@ -1219,7 +1216,7 @@ get fun get_validator_info_mtc(workchain: int, hash: int): GetValidatorInfo {
     return get_validator_info(address);
 }
 
-get fun get_limits_per_validator(): (coins, coins, coins) {
+get fun get_limits_per_validator(): (coins, coins, coins, int) {
     val storage = lazy Storage.load();
     val validators = lazy storage.validators.load();
 
@@ -1227,6 +1224,7 @@ get fun get_limits_per_validator(): (coins, coins, coins) {
         validators.minTonPerValidator,
         validators.maxTonPerValidator,
         validators.maxRefundAmount,
+        validators.refundBonus,
     );
 }
 
