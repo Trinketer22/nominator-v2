@@ -80,6 +80,7 @@ fun defaultDeployBody(params: CustomDeployParameters? = null): InitPoolMessage {
         mainValidator: validatorSettings.mainValidatorAddress,
         limit: null,
         maxRefund: validatorSettings.maxRefund,
+        refundBonus: validatorSettings.refundBonus,
         nominatorsSettings: nmSettings.toCell(),
     };
 }

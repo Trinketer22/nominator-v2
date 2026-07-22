@@ -615,9 +615,9 @@ get fun `test validator should be able to recover stake and rotate round`() {
     val inMsg = recoverTx!.loadInMsg<RecoverStakeOk>();
     var profit = getInternalMessageValue(inMsg.info).grams - prevRound.usage.tonUsed;
     expect(profit).toBeGreater(0);
-    val refundBonus = calculateGasFee(BASECHAIN, REFUND_BONUS_GAS);
+    val refundBonus = validators.refundBonus;
     profit -= calculateGasFee(BASECHAIN, RECOVER_STAKE_OK_GAS) + refundBonus +
-    min(valStateBefore.validator.refundAmount, validators.maxRefundAmount);
+    min(valStateBefore.validator.refundAmount + MAX_RECOVERY_VALUE, validators.maxRefundAmount);
 
     val ownerProfit = mulDivFloor(profit, poolBefore.ownerShare, SHARE_BASE);
     val nominatorsProfit = profit - ownerProfit;
@@ -641,8 +641,8 @@ get fun `test validator should be able to recover stake and rotate round`() {
     // Usage in odd round intact
     expect(validatorAfter.validator.usageState & 1).toEqual(1);
     // println("Refund amount {} {} {}", valStateBefore.validator.refundAmount, validatorAfter.validator.refundAmount, validators.maxRefundAmount);
-    expect(valStateBefore.validator.refundAmount).toBeGreater(validators.maxRefundAmount);
-    expect(validatorAfter.validator.refundAmount).toBeGreater(0);
+    expect(valStateBefore.validator.refundAmount).toBeLessOrEqual(validators.maxRefundAmount);
+    expect(validatorAfter.validator.refundAmount).toBeGreaterOrEqual(0);
     expect(validatorAfter.validator.refundAmount).toBeLess(validators.maxRefundAmount);
     // And sets are rotated!
     expect(validatorAfter.usage.curRoundUsage == null).toBeTrue();
@@ -796,11 +796,11 @@ get fun `test validator should be able to fully close usage record for both roun
     );
 
     val poolBefore = pool.getPoolData();
-    val _validators = poolBefore.validators.load();
+    val validators = poolBefore.validators.load();
     val validatorBefore = pool.getValidatorInfo(validator);
     expect(validatorBefore.validator.usageState).toEqual(RoundAllowance.InAllRounds as int);
     // 2 stakes + 2 routations
-    expect(validatorBefore.validator.refundAmount).toEqual(ton("4"));
+    expect(validatorBefore.validator.refundAmount).toEqual(ton("2"));
     val recovery = waitAndRecoverStake(pool, validator, elector.address);
     expect(recovery).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
     expect(recovery).toHaveTx<StakeReturned>({ from: pool.address, to: validator });
@@ -812,7 +812,7 @@ get fun `test validator should be able to fully close usage record for both roun
     pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
     val beforeRecovery = pool.getValidatorInfo(validator);
     val secondRecovery = waitAndRecoverStake(pool, validator, elector.address);
-    val _refundBonus = calculateGasFee(BASECHAIN, REFUND_BONUS_GAS);
+    val refundBonus = validators.refundBonus;
     expect(secondRecovery).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
     val refundTx = secondRecovery.findTransaction<StakeReturned>({
         from: pool.address,
@@ -822,9 +822,15 @@ get fun `test validator should be able to fully close usage record for both roun
 
     val refundMsg = refundTx!.loadInMsg<StakeReturned>();
 
+    val fwdFee = testing.getConfig().getMsgForwardPrices(validator.getWorkchain()).lumpPrice;
+    // Before refundAmount was above max due to updateVset accumulation
+    val refundAmount = min(
+        beforeRecovery.validator.refundAmount + MAX_RECOVERY_VALUE,
+        validators.maxRefundAmount,
+    );
     expect(getInternalMessageValue(refundMsg.info).grams as int).toBeApproxEqAbs(
-        beforeRecovery.validator.refundAmount,
-        ton("0.01"),
+        refundAmount + refundBonus - fwdFee,
+        ton("0.006"),
     );
 
     val poolAfter = pool.getPoolData();
@@ -833,7 +839,10 @@ get fun `test validator should be able to fully close usage record for both roun
     expect(validatorsAfter.stakeUsed).toEqual(0);
     val validatorAfter = pool.getValidatorInfo(validator);
     expect(validatorAfter.validator.usageState).toEqual(0);
-    expect(validatorAfter.validator.refundAmount).toEqual(0);
+    expect(validatorAfter.validator.refundAmount).toEqual(
+        // Now since updateVset doesn add any value, accumulated refundAmount <= maxRefundAmount
+        max(beforeRecovery.validator.refundAmount - refundAmount, 0),
+    );
     expect(validatorAfter.usage.curRoundUsage).toBeNull();
     expect(validatorAfter.usage.prevRoundUsage).toBeNull();
 }

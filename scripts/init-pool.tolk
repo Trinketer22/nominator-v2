@@ -64,7 +64,8 @@ fun main() {
         "Min TON per validator:",
         "300000",
     );
-    val maxRefund = promptCoins("MAX_REFUND", "Max refund to validator:", "3");
+    val maxRefund = promptCoins("MAX_REFUND", "Max refund to validator:", "5");
+    val refundBonus = promptCoins("REFUND_BONUS", "Refund bonus to validator:", "1");
 
     val maxNominators = promptIntWithEnvOrConst(
         "MAX_NOMINATORS",
@@ -126,6 +127,7 @@ fun main() {
             maxTonPerValidator,
             minTonPerValidator,
             maxRefund,
+            refundBonus: refundBonus as uint33,
             nominatorsSettings: NominatorsSettings {
                 maxNominators: maxNominators as uint10,
                 minStake,

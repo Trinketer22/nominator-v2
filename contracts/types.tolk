@@ -25,6 +25,7 @@ struct ValidatorInitSettings {
     minTonPerValidator: coins
     mainValidatorAddress: address
     maxRefund: coins
+    refundBonus: uint33 = ton("1") as int
 }
 
 struct RoundInfo {
@@ -62,6 +63,7 @@ struct ValidatorsData {
     minTonPerValidator: coins
     maxTonPerValidator: coins
     maxRefundAmount: coins = ton("5")
+    refundBonus: uint33 = ton("1") as int
     validators: map<address, Validator> = []
     curRound: Cell<RoundData>
     prevRound: Cell<RoundData>
@@ -81,6 +83,7 @@ struct GlobalValidatorsLimit {
     minTonPerValidator: coins
     maxTonPerValidator: coins
     maxRefund: coins
+    refundBonus: uint33
 }
 
 struct GlobalNominatorsLimit {

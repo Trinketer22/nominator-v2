@@ -31,33 +31,45 @@ fun ValidatorsData.coverUsageByAddress(
     mutate self,
     address: address,
     amount: int,
+    bonus: int,
     curFirst: bool,
-): (TonUsage?, uint64, bool) {
+): (TonUsage?, bool, bool) {
     val (firstRound, nextRound) = curFirst
         ? (self.curRound, self.prevRound)
         : (self.prevRound, self.curRound);
     var round = firstRound.load();
     val (wc, addrHash) = address.getWorkchainAndHash();
+    var bonusEarned = false;
     // Do nothing for basechain addresses
     if (wc == BASECHAIN) {
-        return (null, round.roundIndex, round.users.isEmpty());
+        return (null, false, round.users.isEmpty());
     }
     var lookup = round.coverUsage(addrHash, amount);
 
+    val bonusDelta = amount - bonus;
+
     if (lookup != null) {
+        if (bonusDelta > lookup.tonUsed) {
+            round.returned -= bonus;
+            bonusEarned = true;
+        }
         val roundCell = round.toCell();
         if (curFirst) {
             self.curRound = roundCell;
         } else {
             self.prevRound = roundCell;
         }
-        return (lookup, round.roundIndex, round.users.isEmpty());
+        return (lookup, bonusEarned, round.users.isEmpty());
     }
 
     round = nextRound.load();
     lookup = round.coverUsage(addrHash, amount);
 
     if (lookup != null) {
+        if (bonusDelta > lookup.tonUsed) {
+            round.returned -= bonus;
+            bonusEarned = true;
+        }
         val roundCell = round.toCell();
         if (curFirst) {
             self.prevRound = roundCell;
@@ -66,7 +78,7 @@ fun ValidatorsData.coverUsageByAddress(
         }
     }
 
-    return (lookup, round.roundIndex, round.users.isEmpty());
+    return (lookup, bonusEarned, round.users.isEmpty());
 }
 
 fun ValidatorsData.getValidatorByAddress(
@@ -141,7 +153,6 @@ fun ValidatorsData.rotateRound(
     mutate self,
     address: address,
     roundIndex: int,
-    inValue: coins = 0,
 ): RotationStatus {
     val curVset = getCurVset();
 
@@ -181,7 +192,6 @@ fun ValidatorsData.rotateRound(
     val bitIdx = toBitIndex(roundIndex);
     if (isMain) {
         var mainValidator = lazy self.mainValidatorData.load();
-        mainValidator.refundAmount += inValue;
         if (mainValidator.usageState > 0) {
             if (curRound == null) {
                 curRound = self.curRound.load();
@@ -195,9 +205,6 @@ fun ValidatorsData.rotateRound(
             );
             updatedCur = updatedCur || updCur;
             updatedPrev = updatedPrev || updPrev;
-        }
-        if (inValue > 0) {
-            self.mainValidatorData = mainValidator.toCell();
         }
     } else {
         val myValidator = self.validators.get(address);
@@ -217,10 +224,6 @@ fun ValidatorsData.rotateRound(
                 );
                 updatedCur = updatedCur || updCur;
                 updatedPrev = updatedPrev || updPrev;
-            }
-            if (inValue > 0) {
-                valData.refundAmount += inValue;
-                self.validators.set(address, valData);
             }
         } else {
             // Good Samaritan willing to spend TON to rotate for everybody

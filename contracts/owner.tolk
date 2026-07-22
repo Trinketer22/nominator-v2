@@ -167,6 +167,7 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
                         validators.minTonPerValidator = msg.limit.minTonPerValidator;
                         validators.maxTonPerValidator = msg.limit.maxTonPerValidator;
                         validators.maxRefundAmount = msg.limit.maxRefund;
+                        validators.refundBonus = msg.limit.refundBonus;
                     }
                     ValidatorSpecific => {
                         var validatorData = validators.getValidatorByAddress(

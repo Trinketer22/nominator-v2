@@ -495,7 +495,29 @@ get fun `test reward withdrawal should be rejected when share delta is zero`() {
     ).toHaveRefund<TextComment>({ from: pool.address, to: testNm.address, error: ErrorsPool.NothingToWithdraw, previousState: stateBefore });
 }
 
-get fun `test if validator refund amount is clamped by maxRefundAmount in profit calculation`() {
+get fun `test updateVset doesn't accumulate any refund amount`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, owner, _notOwner, validator, _nominators) = setupPoolWithNominators(40);
+
+    val testValidator = setupRandomValidator(pool, owner.address);
+    val poolBefore = pool.getPoolData();
+    val validators = lazy poolBefore.validators.load();
+
+    var validatorsSet: array<address> = [validator, testValidator];
+
+    val elections = announceElections(elector);
+    repeat (2) {
+        val curValidator = validatorsSet.pop();
+        assertPoolNewStake(curValidator, pool, elector, elections, stakes.minStake * 2);
+        val stateBefore = pool.getValidatorInfo(curValidator);
+        expect(stateBefore.validator.refundAmount).toBeGreater(0);
+        pool.sendUpdateVset(curValidator, DEFAULT_QUERY_ID, { value: ton("10") });
+        val stateAfter = pool.getValidatorInfo(curValidator);
+        expect(stateAfter.validator.refundAmount).toEqual(stateBefore.validator.refundAmount);
+    }
+}
+
+get fun `test if validator refund amount is clamped by maxRefundAmount + refundBonus in profit calculation`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(40);
 
@@ -522,15 +544,25 @@ get fun `test if validator refund amount is clamped by maxRefundAmount in profit
         true,
     );
 
-    // And now validator starts spamming updateVset
-    repeat (10) {
-        // One ton per request will be accrued
-        pool.sendUpdateVset(testValidator, DEFAULT_QUERY_ID, { value: ton("10") });
-    }
+    // Now let's update maxRefund to some low value
+    val (minStake, maxStake, _maxRefund, refundBonus) = pool.getLimitsPerValidator();
+    val newRefund = ton("0.25");
+    val updRes = pool.sendUpdateLimits(
+        owner.address,
+        DEFAULT_QUERY_ID,
+        GlobalValidatorsLimit {
+            minTonPerValidator: minStake,
+            maxTonPerValidator: maxStake,
+            maxRefund: newRefund,
+            refundBonus: refundBonus,
+        },
+        { value: DEFAULT_MSG_VALUE },
+    );
+    expect(pool.getLimitsPerValidator().2).toEqual(newRefund);
 
     val valInfo = pool.getValidatorInfo(testValidator);
     val tonUsed = valInfo.usage.prevRoundUsage!.usage.tonUsed;
-    expect(valInfo.validator.refundAmount).toBeGreater(validators.maxRefundAmount);
+    expect(valInfo.validator.refundAmount).toBeGreater(newRefund);
 
     val res = waitAndRecoverStake(pool, testValidator, elector.address);
 
@@ -543,8 +575,8 @@ get fun `test if validator refund amount is clamped by maxRefundAmount in profit
     val recoveredValue = getInternalMessageValue(recoveryMsg.info).grams;
 
     val expectedReturn = recoveredValue - calculateGasFee(BASECHAIN, RECOVER_STAKE_OK_GAS) -
-    calculateGasFee(BASECHAIN, REFUND_BONUS_GAS) -
-    validators.maxRefundAmount;
+    validators.refundBonus -
+    newRefund;
 
     val expectedProfit = expectedReturn - tonUsed;
 
@@ -553,6 +585,10 @@ get fun `test if validator refund amount is clamped by maxRefundAmount in profit
     expect(poolAfter.nominatorsAmount as int).toBeApproxEqAbs(
         poolBefore.nominatorsAmount + expectedProfit / 2,
         1,
+    );
+    // MAX_RECOVERY_VALUE accumulated from recovery
+    expect(pool.getValidatorInfo(testValidator).validator.refundAmount).toEqual(
+        valInfo.validator.refundAmount + MAX_RECOVERY_VALUE - newRefund,
     );
 
     // At round info
@@ -567,9 +603,10 @@ get fun `test if validator refund amount is clamped by maxRefundAmount in profit
     expect(refundTx).toBeNotNull();
     val refundMsg = refundTx!.loadInMsg<StakeReturned>();
 
+    val fwdFee = testing.getConfig().getMsgForwardPrices(testValidator.getWorkchain()).lumpPrice;
     expect(getInternalMessageValue(refundMsg.info).grams as int).toBeApproxEqAbs(
-        validators.maxRefundAmount,
-        ton("0.01"),
+        newRefund + validators.refundBonus - fwdFee,
+        ton("0.006"),
     );
 
     val recoveryBody = refundMsg.loadBody() as StakeReturned;
@@ -611,13 +648,13 @@ get fun `test if pool received loss, nominators stake should decrease in price`(
 
     val used = valInfo.usage.prevRoundUsage!.usage.tonUsed;
     val returnedStake = mulDivFloor(used, 9700, 10000);
+    val validators = poolBefore.validators.load();
     val expectedLoss = returnedStake -
     min(
         valInfo.validator.refundAmount,
-        poolBefore.validators.load().maxRefundAmount,
+        validators.maxRefundAmount,
     ) -
     calculateGasFee(BASECHAIN, RECOVER_STAKE_OK_GAS) -
-    calculateGasFee(BASECHAIN, REFUND_BONUS_GAS) -
     used;
 
     expect(expectedLoss).toBeLess(0);
@@ -657,6 +694,98 @@ get fun `test if pool received loss, nominators stake should decrease in price`(
     expect(nmAfter.amount).toBeLess(nmBefore.amount);
 
     asssertSimpleWithdawal(pool, testNm);
+}
+
+get fun `test stake profit smaller than refundBonus should not award bonus`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+
+    val valInfo = waitTillRecovery(pool, validator, elector.address);
+
+    val testNm = nominators.get(random.range(40 - 1));
+    val nmHash = testNm.getWorkchainAndHash().1;
+    val poolBefore = pool.getPoolData();
+    val nmBefore = pool.getNominatorData(nmHash);
+    val validators = poolBefore.validators.load();
+
+    val used = valInfo.usage.prevRoundUsage!.usage.tonUsed;
+    val refundBonus = validators.refundBonus;
+    val expectedProxy = valInfo.usage.prevRoundUsage!.proxy;
+
+    // Craft a returned value that is profitable (returned > used)
+    // but whose profit is smaller than refundBonus (returned <= used + refundBonus).
+
+    val refundAmount = min(valInfo.validator.refundAmount, validators.maxRefundAmount);
+    val returnPricipal = used + refundBonus / 2;
+    val recoveredValue = returnPricipal + calculateGasFee(BASECHAIN, RECOVER_STAKE_OK_GAS) +
+    refundAmount;
+
+    val res = net.send(
+        address.fromWorkchainAndHash(MASTERCHAIN, expectedProxy),
+        createMessage({
+            bounce: false,
+            dest: pool.address,
+            value: recoveredValue,
+            body: RecoverStakeOk {
+                queryId: 0,
+                remaining: ProxyResponseData {
+                    validator,
+                    parity: false, // Returning round 0 stake
+                }.toCell()
+                    .beginParse(),
+            },
+        }),
+    );
+
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+
+    val poolAfter = pool.getPoolData();
+    expect(poolAfter.roundClosed).toBeFalse();
+
+    val expectedProfit = returnPricipal - used;
+    expect(expectedProfit).toBeGreater(0);
+    expect(expectedProfit).toBeLess(refundBonus);
+
+    val ownerShare = mulDivFloor(expectedProfit, poolBefore.ownerShare, SHARE_BASE);
+    val nominatorsProfit = expectedProfit - ownerShare;
+
+    // If the bonus were erroneously paid, profit would be negative refundBonus / 2
+    // and nominatorsAmount would decrease instead.
+    expect(poolAfter.nominatorsAmount as int).toBeApproxEqAbs(
+        poolBefore.nominatorsAmount + nominatorsProfit,
+        1,
+    );
+
+    // Each nominator should see their stake increase in price
+    val nmAfter = pool.getNominatorData(nmHash);
+    expect(nmAfter.amount).toBeGreater(nmBefore.amount);
+
+    // RoundInfoMessage should report the profit without bonus deduction
+    val reportTx = res.findTransaction<RoundInfoMessage>({ from: pool.address });
+    expect(reportTx).toBeNotNull();
+    val infoBody = reportTx!.loadBody<RoundInfoMessage>();
+    expect(infoBody.info.used).toEqual(used);
+    expect(infoBody.info.returned).toEqual(returnPricipal);
+    expect(infoBody.info.returned - infoBody.info.used).toEqual(expectedProfit);
 }
 
 get fun `test deep losses should put pool nm operations into insolvent state`() {

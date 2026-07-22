@@ -421,6 +421,7 @@ fun onInternalMessage(in: InMessage) {
             vsetHash: getCurVset().vsetHash >> 128,
             mainValidatorData: mainValidator.toCell(),
             maxRefundAmount: msg.maxRefund,
+            refundBonus: msg.refundBonus,
         };
         assertStakingLimit(msg.minTonPerValidator, msg.maxTonPerValidator);
         val newStorage = Storage {
@@ -469,12 +470,12 @@ fun onInternalMessage(in: InMessage) {
         }
         UpdateVset => {
             var validators = storage.validators.load();
-            val inValue = min(in.valueCoins, REFUND_THRESHOLD);
-            val status = validators.rotateRound(in.senderAddress, storage.roundIndex, inValue);
+            val status = validators.rotateRound(in.senderAddress, storage.roundIndex);
             storage.finalizeRound(status);
             if (in.senderAddress != contract.getAddress()) {
+                // Reserve pre-msg balance. Can't fail
                 reserveGramsOnBalance(
-                    REFUND_THRESHOLD,
+                    0,
                     RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_AT_MOST,
                 );
                 refundError(
@@ -861,7 +862,6 @@ fun onInternalMessage(in: InMessage) {
             var validators = lazy storage.validators.load();
 
             // Since round map has proxy address as a key, we don't need state->address calculation
-            val refundBonus = calculateGasFee(BASECHAIN, REFUND_BONUS_GAS);
             var returned = in.valueCoins -
             calculateGasFee(
                 BASECHAIN,
@@ -875,12 +875,13 @@ fun onInternalMessage(in: InMessage) {
             var refundAmount = 0;
             if (validator != null) {
                 refundAmount = min(validator.data.refundAmount, validators.maxRefundAmount);
-                returned -= refundAmount + refundBonus;
+                returned -= refundAmount;
             }
 
-            val (stakeReturned, _roundIdx, roundDone) = validators.coverUsageByAddress(
+            val (stakeReturned, bonusEarned, roundDone) = validators.coverUsageByAddress(
                 in.senderAddress,
                 returned,
+                validators.refundBonus,
                 (storage.roundIndex % 2 > 0) == proxyData.parity,
             );
 
@@ -890,6 +891,12 @@ fun onInternalMessage(in: InMessage) {
                 assert(expectedAdddress == in.senderAddress, ErrorsPool.NotFromProxy);
                 // Otherwise should never happen, but if it did, there is nothing to do
                 return;
+            }
+
+            var refundBonus = 0;
+            if (bonusEarned) {
+                refundBonus = validators.refundBonus;
+                returned -= refundBonus;
             }
 
             val profit = returned - stakeReturned.tonUsed;
@@ -915,11 +922,8 @@ fun onInternalMessage(in: InMessage) {
 
                 // Who we owe are all forgiven
                 validator.data.usageState &= ~parityToMask(proxyData.parity);
-                if (validator.data.usageState == 0) {
-                    validator.data.refundAmount = 0;
-                } else {
-                    validator.data.refundAmount -= refundAmount;
-                }
+                // Preserve the unused even if validator fully exits the pool
+                validator.data.refundAmount = max(validator.data.refundAmount - refundAmount, 0);
                 validators.updateValidatorByAddress(stakeReturned.validator, validator);
 
                 if (storage.nominatorsAmount > 0) {
@@ -1219,7 +1223,7 @@ get fun get_validator_info_mtc(workchain: int, hash: int): GetValidatorInfo {
     return get_validator_info(address);
 }
 
-get fun get_limits_per_validator(): (coins, coins, coins) {
+get fun get_limits_per_validator(): (coins, coins, coins, int) {
     val storage = lazy Storage.load();
     val validators = lazy storage.validators.load();
 
@@ -1227,6 +1231,7 @@ get fun get_limits_per_validator(): (coins, coins, coins) {
         validators.minTonPerValidator,
         validators.maxTonPerValidator,
         validators.maxRefundAmount,
+        validators.refundBonus,
     );
 }
 

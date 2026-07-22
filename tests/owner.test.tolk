@@ -382,7 +382,12 @@ get fun `test owner should be able to update global per validator parameters`() 
     val (pool, owner, _notOwner, _validator) = setupDeployedPool();
 
     val _poolData = pool.getPoolData();
-    val (minTonPerValidator, maxTonPerValidator, _maxRefundAmount) = pool.getLimitsPerValidator();
+    val (
+        minTonPerValidator,
+        maxTonPerValidator,
+        _maxRefundAmount,
+        _refundBonus,
+    ) = pool.getLimitsPerValidator();
 
     val networkLimits = StakingLimits.fromCell(testing.getConfig().getParamRaw(STAKES_IDX));
     val newMax = min(
@@ -394,6 +399,7 @@ get fun `test owner should be able to update global per validator parameters`() 
         networkLimits.minStake,
     );
     val newRefund = ton("100");
+    val newRefundBonus = (random.range(7) + 1) * ton("1");
 
     val _res = pool.sendUpdateLimits(
         owner.address,
@@ -402,26 +408,29 @@ get fun `test owner should be able to update global per validator parameters`() 
             minTonPerValidator: newMin,
             maxTonPerValidator: newMax,
             maxRefund: newRefund,
+            refundBonus: newRefundBonus,
         },
     );
 
-    val (updMin, updMax, updRefund) = pool.getLimitsPerValidator();
+    val (updMin, updMax, updRefund, updRefundBonus) = pool.getLimitsPerValidator();
     expect(updMin).toEqual(newMin);
     expect(updMax).toEqual(newMax);
     expect(updRefund).toEqual(newRefund);
+    expect(updRefundBonus).toEqual(newRefundBonus);
 
     val poolAfter = pool.getPoolData();
     val valAfter = poolAfter.validators.load();
     expect(valAfter.maxTonPerValidator).toEqual(newMax);
     expect(valAfter.minTonPerValidator).toEqual(newMin);
     expect(valAfter.maxRefundAmount).toEqual(newRefund);
+    expect(valAfter.refundBonus).toEqual(newRefundBonus);
 }
 
 get fun `test owner global validator limits should be checked against max > min`() {
     val (pool, owner, _notOwner, _validator) = setupDeployedPool();
 
     val _poolData = pool.getPoolData();
-    val (minTonPerValidator, maxTonPerValidator, _maxRefundAmount) = pool.getLimitsPerValidator();
+    val (minTonPerValidator, maxTonPerValidator, _, _) = pool.getLimitsPerValidator();
 
     val networkLimits = StakingLimits.fromCell(testing.getConfig().getParamRaw(STAKES_IDX));
     val newMax = max(
@@ -433,6 +442,7 @@ get fun `test owner global validator limits should be checked against max > min`
         networkLimits.minStake,
     );
     val newRefund = ton("100");
+    val newBonus = (random.range(7) + 1) * ton("1");
 
     val balanceBefore = testing.getAccountBalance(pool.address);
     val stateBefore = getAccountData(pool.address);
@@ -443,6 +453,7 @@ get fun `test owner global validator limits should be checked against max > min`
             minTonPerValidator: newMax,
             maxTonPerValidator: newMin,
             maxRefund: newRefund,
+            refundBonus: newBonus,
         },
     );
     expect(res).toHaveRefund<UpdateLimits>({
@@ -458,7 +469,7 @@ get fun `test owner global validator limits should be checked against network mi
     val (pool, owner, _notOwner, _validator) = setupDeployedPool();
     val balanceBefore = testing.getAccountBalance(pool.address);
     val stateBefore = getAccountData(pool.address);
-    val (initialMin, initialMax, refund) = pool.getLimitsPerValidator();
+    val (initialMin, initialMax, refund, refundBonus) = pool.getLimitsPerValidator();
 
     val networkLimits = StakingLimits.fromCell(testing.getConfig().getParamRaw(STAKES_IDX));
 
@@ -469,6 +480,7 @@ get fun `test owner global validator limits should be checked against network mi
             minTonPerValidator: networkLimits.minStake - 1,
             maxTonPerValidator: initialMax,
             maxRefund: refund,
+            refundBonus: refundBonus,
         },
     );
     expect(res).toHaveRefund<UpdateLimits>({
@@ -485,6 +497,7 @@ get fun `test owner global validator limits should be checked against network mi
             minTonPerValidator: initialMin,
             maxTonPerValidator: networkLimits.maxStake + 1,
             maxRefund: refund,
+            refundBonus: refundBonus,
         },
     );
     expect(res).toHaveRefund<UpdateLimits>({
@@ -501,10 +514,11 @@ get fun `test owner global validator limits should be checked against network mi
             minTonPerValidator: networkLimits.minStake,
             maxTonPerValidator: networkLimits.maxStake,
             maxRefund: refund,
+            refundBonus: refundBonus,
         },
     );
 
-    val (minAfter, maxAfter, _) = pool.getLimitsPerValidator();
+    val (minAfter, maxAfter, _, _) = pool.getLimitsPerValidator();
     expect(minAfter).toEqual(networkLimits.minStake);
     expect(maxAfter).toEqual(networkLimits.maxStake);
 }
@@ -513,7 +527,7 @@ get fun `test only owner should be able to update global per validator parameter
     val (pool, _owner, notOwner, _validator) = setupDeployedPool();
 
     val _poolData = pool.getPoolData();
-    val (minTonPerValidator, maxTonPerValidator, _maxRefundAmount) = pool.getLimitsPerValidator();
+    val (minTonPerValidator, maxTonPerValidator, _, _) = pool.getLimitsPerValidator();
 
     val newMax = maxTonPerValidator + (random.range(100) + 1) * ton("1000");
     val newMin = minTonPerValidator - (random.range(100) + 1) * ton("100");
@@ -527,6 +541,7 @@ get fun `test only owner should be able to update global per validator parameter
             minTonPerValidator: newMin,
             maxTonPerValidator: newMax,
             maxRefund: newRefund,
+            refundBonus: ton("1") as uint33,
         },
     );
 
