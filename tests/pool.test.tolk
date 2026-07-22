@@ -1,6 +1,7 @@
 import "@stdlib/gas-payments"
 import "@stdlib/lisp-lists"
 import "@stdlib/tvm-lowlevel"
+import "@acton/io"
 import "@acton/emulation/config"
 import "@acton/emulation/network"
 import "@acton/emulation/testing"
@@ -2079,33 +2080,46 @@ get fun `test in closed round, withdraw should become pending and be fullfilled 
     val (elector, stakes, limits) = setupElector();
     val (
         pool,
-        _owner,
+        owner,
         _notOwner,
         validator,
-        _randomValidator,
+        randomValidator,
         nominators,
     ) = setupFullyBookedPool();
 
     var testNominators = nominators;
 
-    runRound(
-        pool,
-        elector,
-        stakes,
-        limits,
-        validator,
-        0,
-        false,
-    );
-    runRound(
-        pool,
-        elector,
-        stakes,
-        limits,
-        validator,
-        0,
-        true,
-    );
+    var elections = announceElections(elector);
+    val poolInitial = pool.getPoolData();
+    val validatorsInitial = poolInitial.validators.load();
+    var valLookup = validatorsInitial.validators.findFirst();
+    // Let's make a fully staked 32 slots
+    while (valLookup.isFound) {
+        val valAddress = valLookup.getKey();
+        assertPoolNewStake(valAddress, pool, elector, elections, stakes.minStake * 2);
+        valLookup = validatorsInitial.validators.iterateNext(valLookup);
+    }
+    assertPoolNewStake(validator, pool, elector, elections, stakes.minStake * 2);
+
+    runElections(elector, stakes, limits);
+
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+    elections = announceElections(elector);
+
+    valLookup = validatorsInitial.validators.findFirst();
+    // Let's make a fully staked 32 slots
+    while (valLookup.isFound) {
+        val valAddress = valLookup.getKey();
+        assertPoolNewStake(valAddress, pool, elector, elections, stakes.minStake * 2);
+        valLookup = validatorsInitial.validators.iterateNext(valLookup);
+    }
+    assertPoolNewStake(validator, pool, elector, elections, stakes.minStake * 2);
+    runElections(elector, stakes, limits);
+
+    val fatUpd = pool.sendUpdateVset(owner.address, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+    expect(
+        fatUpd,
+    ).toHaveSuccessfulTx<UpdateVset>({ from: owner.address, to: pool.address, aborted: false });
 
     var nmLookup: map<address, coins> = [];
 
@@ -2134,18 +2148,41 @@ get fun `test in closed round, withdraw should become pending and be fullfilled 
         prevItemAddr = testItem.address;
     }
 
+    valLookup = validatorsInitial.validators.findFirst();
+    // All validators out of prev round
+    var totalProfit = 0;
+    var nominatorsProfit = totalProfit;
+    var ownerProfit = totalProfit;
+
+    while (valLookup.isFound) {
+        val valAddress = valLookup.getKey();
+        val res = waitAndRecoverStake(pool, valAddress, elector.address);
+
+        val stakeReturnedTx = res.findTransaction<StakeReturned>({ from: pool.address, to: valAddress });
+        expect(stakeReturnedTx).toBeNotNull();
+
+        val stakeReturned = stakeReturnedTx!.loadBody<StakeReturned>();
+        val stakeProfit = stakeReturned.returned - stakeReturned.used;
+        val ownerProfitFromStake = mulDivFloor(stakeProfit, poolBefore.ownerShare, SHARE_BASE);
+        val nmProfitFromStake = stakeProfit - ownerProfitFromStake;
+        totalProfit += stakeProfit;
+        ownerProfit += ownerProfitFromStake;
+        nominatorsProfit += nmProfitFromStake;
+        valLookup = validatorsInitial.validators.iterateNext(valLookup);
+    }
     val res = waitAndRecoverStake(pool, validator, elector.address);
+
     // println(res);
     //
-
     val recoverTx = res.findTransaction<RecoverStakeOk>({ to: pool.address });
     val stakeReturnedTx = res.findTransaction<StakeReturned>({ from: pool.address, to: validator });
     expect(recoverTx != null).toBeTrue();
     expect(stakeReturnedTx != null).toBeTrue();
     val stakeReturned = stakeReturnedTx!.loadBody<StakeReturned>();
-    val recoveryProfit = stakeReturned.returned - stakeReturned.used;
-    val ownerProfit = mulDivFloor(recoveryProfit, poolBefore.ownerShare, SHARE_BASE);
-    val nominatorsRecoveryProfit = recoveryProfit - ownerProfit;
+    val lastStakeProfit = stakeReturned.returned - stakeReturned.used;
+
+    nominatorsProfit += lastStakeProfit -
+    mulDivFloor(lastStakeProfit, poolBefore.ownerShare, SHARE_BASE);
 
     expect(res).toHaveSuccessfulTx<PayoutBurnNotification>({ to: pool.address });
     expect(res).toHaveSuccessfulTx<PayoutBurnMessage>({ from: pool.address });
@@ -2179,7 +2216,7 @@ get fun `test in closed round, withdraw should become pending and be fullfilled 
         expect(nmAfter.poolNominators.exists(curAddress)).toBeFalse();
     }
     expect(poolAfter.nominatorsAmount).toEqual(
-        poolBefore.nominatorsAmount + nominatorsRecoveryProfit - totalWithdrwn,
+        poolBefore.nominatorsAmount + nominatorsProfit - totalWithdrwn,
     );
 }
 

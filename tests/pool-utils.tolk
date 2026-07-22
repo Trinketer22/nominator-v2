@@ -157,10 +157,10 @@ fun setupFullyBookedPool(): (
 
     var (pool, owner, notOwner, mainValidator, nominators) = setupPoolWithNominators(1023);
 
-    val randomPickedIdx = random.range(127);
+    val randomPickedIdx = random.range(31);
     var randomPickedValidator: address? = null;
     var curIdx = 0;
-    repeat (127) {
+    repeat (31) {
         val newAddress = address.fromWorkchainAndHash(MASTERCHAIN, random.uint256());
         if (curIdx == randomPickedIdx) {
             randomPickedValidator = newAddress;

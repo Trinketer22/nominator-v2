@@ -3,6 +3,7 @@ import "@contracts/errors"
 const SHARE_BASE = 256 * 256 * 256
 const ROUNDS_DELAY = 3
 const MAX_NM_DEPTH = 15
+const MAX_VALIDATORS = 32
 
 struct Nominator {
     share: coins
@@ -56,9 +57,9 @@ struct ValidatorsData {
     mainValidatorAddress: address
     vsetHash: uint128
     mainValidatorData: Cell<Validator>
-    // 127 validators will fit
-    activeValidators: uint8 = 1
-    activeSlots: uint9 = 0
+    // 32 validators will fit
+    activeValidators: uint6 = 1
+    activeSlots: uint7 = 0
     stakeUsed: coins = 0
     minTonPerValidator: coins
     maxTonPerValidator: coins
