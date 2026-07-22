@@ -95,6 +95,7 @@ If processing pending deposits/withdrawals exhausts available gas or balance in 
 | `maxTonPerValidator` | `coins` | Global maximum stake any single validator may use from the pool. |
 | `minTonPerValidator` | `coins` | Global minimum stake a validator must request for a `new_stake`. |
 | `maxRefund` | `coins` | Maximum TON refunded to a validator on top of recovered stake if the validator made a profit. |
+| `refundBonus` | `uint33` | Extra bonus paid on top of `maxRefund` for recovering a **profitable** round (capped at ~8.6 TON). See [Validator Refunds](#validator-refunds-automatic). |
 | `nominatorsSettings` | `Cell<NominatorsSettings>` | Encapsulated nominator configuration (see below). |
 
 ### Nominator Settings (`NominatorsSettings`)
@@ -112,7 +113,7 @@ After initialization, the owner can adjust limits via the `UpdateLimits` or `Upd
 
 | Category | Fields | Description |
 |----------|--------|-------------|
-| **GlobalValidatorsLimit** | `minTonPerValidator`, `maxTonPerValidator`, `maxRefund` | Adjusts staking bounds for all validators and the refund cap. These bounds are also validated against **network config 17** staking limits: `minTonPerValidator` must be ≥ `minStake` and `maxTonPerValidator` must be ≤ `maxStake` from network config. |
+| **GlobalValidatorsLimit** | `minTonPerValidator`, `maxTonPerValidator`, `maxRefund`, `refundBonus` | Adjusts global staking bounds, refund cap, and per-round bonus. Validated against **network config 17** limits (`minTonPerValidator ≥ minStake`, `maxTonPerValidator ≤ maxStake`). |
 | **ValidatorSpecific** | `validator`, `limit` | Sets an individual validator's `ValidatorLimit` (TON cap or share cap). |
 | **GlobalNominatorsLimit** | `minStake`, `maxNm` | Updates minimum nominator stake and the total nominator count ceiling. |
 | **NominatorsWhitelist** | `whitelist` | Replaces the current nominator whitelist map. A non-empty whitelist restricts deposits to the listed addresses only. An empty map clears the restriction and allows all addresses. |
@@ -146,11 +147,11 @@ ownerShare >= maxPunishment(minTonPerValidator) * activeSlots
 The punishment amount is derived from TON config param 40 (misbehavior fines), scaled by severity and duration multipliers.
 
 ### Validator Refunds (Automatic)
-Validators **do not need to maintain a separate wallet balance** to track how much gas or TON they have tied up in the pool. The contract tracks a `refundAmount` per validator automatically:
-- Incoming message value from `new_stake` and `recover_stake` calls is recorded.
-- Upon successful `recover_stake_ok`, the pool calculates net profit (`returned - used`) and reimburses the validator by sending a `StakeReturned` message.
-- The refund is capped by `maxRefundAmount`, and the validator only receives reimbursement if the overall operation was profitable.
-- This means the validator can simply send requests and rely on the pool to settle usage costs, without manually tracking balances or ensuring their wallet always holds a specific amount.
+Validators **do not need to maintain a separate wallet balance** to track gas/TON tied up in the pool. The contract tracks a `refundAmount` per validator automatically:
+- Incoming message value from `new_stake`/`recover_stake` is recorded.
+- On successful `recover_stake_ok`, the pool calculates net profit (`returned - used`) and reimburses the validator via a `StakeReturned` message, capped by `maxRefundAmount`.
+- A configurable **`refundBonus`** (set in `PoolInitMessage` / `GlobalValidatorsLimit`) is paid on top of the refund **only if the round was profitable** (recovered amount > staked `tonUsed` + bonus). This gates the bonus behind real validation profit to discourage bonus inflation from rogue validators.
+- `refundAmount` is preserved across a full validator exit.
 
 ---
 
@@ -326,7 +327,7 @@ Because proxy addresses are derived deterministically from `(validator_address, 
 
 ### Nominator Operations (Text Comments)
 
-Nominators interact with the pool by sending text-comment messages. Every deposit/withdrawal triggers an **implicit vset rotation check** (`UpdateVset`) before the request is processed, so nominators' actions can also advance round transitions and clear pending queues. Validators do not need to send a separate `UpdateVset` solely for this purpose. Nominators can deposit TON, withdraw their entire position, or withdraw only accrued rewards while leaving the principal stake in the pool.
+Nominators interact with the pool by sending text-comment messages. Nominators can deposit TON, withdraw their entire position, or withdraw only accrued rewards while leaving the principal stake in the pool.
 
 | Comment | Action |
 |---------|--------|
@@ -392,7 +393,7 @@ The pool exposes several getters for off-chain queries:
 | `get_validator_info(address: address)` | `GetValidatorInfo` | Validator data, usage records for both rounds, and a **projected `roundIndex` and `rotated` flag** after running the same vset rotation check as `UpdateVset`. It also returns the **current `stakeable` amount** — the TON the validator is allowed to use in the current round — computed by applying the exact same validation checks as `NewStake` (round state, parity, usage, limits, balance, owner undercapitalization, etc). The goal is to let off-chain tools know whether a validator is actually eligible to stake and how much, without attempting a real transaction. Because this getter evaluates `rotateRound`, calling it may advance the round state in the same way a real `UpdateVset` message would. |
 | `get_validator_info_mtc(workchain: int, hash: int)` | `GetValidatorInfo` | Same as `get_validator_info`, but accepts workchain + hash for masterchain tooling compatibility. |
 | `get_proxy_address(validator: address)` | `GetProxyAddressResult` | Even/odd proxy addresses for a given validator. |
-| `get_limits_per_validator()` | `(coins, coins, coins)` | `(minTonPerValidator, maxTonPerValidator, maxRefundAmount)`. |
+| `get_limits_per_validator()` | `(coins, coins, coins, int)` | `(minTonPerValidator, maxTonPerValidator, maxRefundAmount, refundBonus)`. |
 | `get_nominator_minimal_stake()` | `GetMinStake` | `(minStake, minExpectedValue)` where `minExpectedValue = minStake + DEPOSIT_GAS`. |
 | `get_max_punishment(stake: int)` | `int` | Max punishment fine for a given stake amount, derived from config param 40. |
 | `get_pool_invariants()` | `PoolInvariants` | Audit/diagnostic getter that recomputes the cached nominator aggregates (share supply, pending deposits/withdrawals, nominator count) from the primary nominator map and reports whether they match the stored aggregates (`supplyMatch`, `pendingWithdrawalsMatch`, `pendingDepositsMatch`, `nmCountMatch`, `allMatch`). No assertion is performed — it reports only. Also exposes `nominatorsAmount` and a `projectedBalance` (`balance + stakeUsed - pendingDeposits - POOL_MIN_STORAGE`) for off-chain solvency monitoring, plus the recomputed values for debugging. |
@@ -412,6 +413,9 @@ All elector responses (`NewStakeOk`, `NewStakeError`, `RecoverStakeOk`, `Recover
 ### Owner Share requirements
 Before any `new_stake`, the contract ensures the owner's share of total balance exceeds the worst-case punishment fine multiplied by the number of active validator slots. This supposed to protect nominators from validator slashing.
 
+### Solvency Check
+Before processing nominator deposits/withdrawals, the pool verifies that its **projected balance** (`balance - pendingDeposits - POOL_MIN_STORAGE + stakeUsed`) exceeds `nominatorsAmount`; otherwise the message is rejected. The same projected balance is exposed by `get_pool_invariants()` for off-chain solvency monitoring.
+
 ### Bounce Handling
 If a `new_stake` message bounces (e.g., proxy frozen or elector rejection), the usage record is automatically reversed and the validator's locked funds are released.
 
@@ -428,7 +432,7 @@ If pending nominator operations cannot be cleared in a single round rotation, th
 - Configurable per-validator and global staking limits, validated against network config 17 bounds.
 - Nominator whitelist: owner can restrict deposits to a specific set of addresses via `NominatorsSettings.whitelist` or `UpdateNominatorsWhitelist`.
 - Reward withdrawal via `"r"` comment.
-- Dynamic validator quantity (up to 128 validators).
+- Dynamic validator quantity (up to **32** validators).
 - Owner-only mode: set `maxNominators = 0` to reject nominator deposits.
 
 ### Not yet implemented
