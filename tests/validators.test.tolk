@@ -1787,7 +1787,7 @@ get fun `test new stake error from elector should be handled appropriately (FULL
 
     val validatorsInitial = poolInitial.validators.load();
     var lookup = validatorsInitial.validators.findFirst();
-    // Let's make a fully staked 127 slots
+    // Let's make a fully staked 32 slots
     while (lookup.isFound) {
         val valAddress = lookup.getKey();
         if (valAddress != randomValidator) {

@@ -86,6 +86,84 @@ get fun `test owner should be able to add more validators`() {
     }
 }
 
+get fun `test owner should be able to add only MAX_VALIDATORS`() {
+    val (pool, owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(10);
+
+    val maxPunishment = pool.getMaxPunishment(0);
+    val minValue = (maxPunishment + PROXY_MIN_STORAGE) * 2 + ton("1");
+
+    val queryId = random.range(128);
+    var i = 0;
+    repeat (MAX_VALIDATORS - 1) {
+        val testValidator = address.fromWorkchainAndHash(MASTERCHAIN, random.uint256());
+        val allowance = RoundAllowance.InAllRounds;
+        val balanceBefore = testing.getAccountBalance(pool.address);
+        val res = pool.sendAddValidator(
+            owner.address,
+            queryId,
+            testValidator,
+            allowance,
+            null,
+            { value: minValue },
+        );
+        val addTx = res.findTransaction<AddValidator>(
+            {
+                to: pool.address,
+                from: owner.address,
+            },
+        );
+        expect(addTx != null).toBeTrue();
+        val expectedProxyCount = 2;
+        val balanceAfter = testing.getAccountBalance(pool.address);
+        // For each proxy count there should be a slashing reserve
+        // Delta for storage fee
+        expect(balanceAfter as int).toBeApproxEqAbs(
+            balanceBefore + maxPunishment * expectedProxyCount,
+            3,
+        );
+        // Up to two proxy deploys and refund
+        expect(getTxActionPh(addTx!).msgsCreated).toEqual(expectedProxyCount + 1);
+        val resInfo = pool.getValidatorInfo(testValidator);
+        val validatorInfo = resInfo.validator;
+
+        expect(validatorInfo.usageState).toEqual(0);
+        i += 1;
+
+        val allowanceMask = allowance as int;
+        if ((allowanceMask & 1) > 0) {
+            expect(validatorInfo.oddProxy != null).toBeTrue();
+        } else {
+            expect(validatorInfo.oddProxy == null).toBeTrue();
+        }
+        if ((allowanceMask & 2) > 0) {
+            expect(validatorInfo.evenProxy != null).toBeTrue();
+        } else {
+            expect(validatorInfo.evenProxy == null).toBeTrue();
+        }
+
+        expect(validatorInfo.roundParity == allowance);
+    }
+
+    val poolBefore = getAccountData(pool.address);
+    val balanceBefore = testing.getAccountBalance(pool.address);
+    val extraValidator = address.fromWorkchainAndHash(MASTERCHAIN, random.uint256());
+    val res = pool.sendAddValidator(
+        owner.address,
+        queryId,
+        extraValidator,
+        RoundAllowance.InAllRounds,
+        null,
+        { value: minValue },
+    );
+    expect(res).toHaveRefund<AddValidator>({
+        from: pool.address,
+        to: owner.address,
+        previousState: poolBefore,
+        initialBalance: balanceBefore,
+        error: ErrorsPool.TooManyValidators,
+    });
+}
+
 get fun `test only owner should be able to add validator`() {
     val (pool, _owner, notOwner, _validator, _nominators) = setupPoolWithNominators(10);
 

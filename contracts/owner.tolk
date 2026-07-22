@@ -44,7 +44,7 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
 
                 assert(newAdded, ErrorsPool.ValidatorAlreadyExits);
                 validators.activeValidators += 1;
-                assert(validators.activeValidators <= (1 << 7), ErrorsPool.TooManyValidators);
+                assert(validators.activeValidators <= MAX_VALIDATORS, ErrorsPool.TooManyValidators);
 
                 storage.validators = validators.toCell();
                 storage.save();
