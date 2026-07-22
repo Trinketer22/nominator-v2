@@ -862,7 +862,6 @@ fun onInternalMessage(in: InMessage) {
             var validators = lazy storage.validators.load();
 
             // Since round map has proxy address as a key, we don't need state->address calculation
-            val refundBonus = validators.refundBonus;
             var returned = in.valueCoins -
             calculateGasFee(
                 BASECHAIN,
@@ -876,12 +875,13 @@ fun onInternalMessage(in: InMessage) {
             var refundAmount = 0;
             if (validator != null) {
                 refundAmount = min(validator.data.refundAmount, validators.maxRefundAmount);
-                returned -= refundAmount + refundBonus;
+                returned -= refundAmount;
             }
 
-            val (stakeReturned, _roundIdx, roundDone) = validators.coverUsageByAddress(
+            val (stakeReturned, bonusEarned, roundDone) = validators.coverUsageByAddress(
                 in.senderAddress,
                 returned,
+                validators.refundBonus,
                 (storage.roundIndex % 2 > 0) == proxyData.parity,
             );
 
@@ -891,6 +891,12 @@ fun onInternalMessage(in: InMessage) {
                 assert(expectedAdddress == in.senderAddress, ErrorsPool.NotFromProxy);
                 // Otherwise should never happen, but if it did, there is nothing to do
                 return;
+            }
+
+            var refundBonus = 0;
+            if (bonusEarned) {
+                refundBonus = validators.refundBonus;
+                returned -= refundBonus;
             }
 
             val profit = returned - stakeReturned.tonUsed;

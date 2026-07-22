@@ -655,7 +655,6 @@ get fun `test if pool received loss, nominators stake should decrease in price`(
         validators.maxRefundAmount,
     ) -
     calculateGasFee(BASECHAIN, RECOVER_STAKE_OK_GAS) -
-    validators.refundBonus -
     used;
 
     expect(expectedLoss).toBeLess(0);
