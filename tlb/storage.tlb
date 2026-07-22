@@ -89,12 +89,13 @@ validators_data$_
   main_validator_address:MsgAddressInt
   vset_hash:uint128
   main_validator_data:^Validator
-  active_validators:uint8
-  active_slots:uint9
+  active_validators:uint6
+  active_slots:uint7
   stake_used:Grams
   min_ton_per_validator:Grams
   max_ton_per_validator:Grams
   max_refund_amount:Grams
+  refund_bonus:uint33
   validators:(HashmapE 267 Validator)
   cur_round:^RoundData
   prev_round:^RoundData
