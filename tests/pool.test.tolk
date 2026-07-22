@@ -696,6 +696,98 @@ get fun `test if pool received loss, nominators stake should decrease in price`(
     asssertSimpleWithdawal(pool, testNm);
 }
 
+get fun `test stake profit smaller than refundBonus should not award bonus`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+
+    val valInfo = waitTillRecovery(pool, validator, elector.address);
+
+    val testNm = nominators.get(random.range(40 - 1));
+    val nmHash = testNm.getWorkchainAndHash().1;
+    val poolBefore = pool.getPoolData();
+    val nmBefore = pool.getNominatorData(nmHash);
+    val validators = poolBefore.validators.load();
+
+    val used = valInfo.usage.prevRoundUsage!.usage.tonUsed;
+    val refundBonus = validators.refundBonus;
+    val expectedProxy = valInfo.usage.prevRoundUsage!.proxy;
+
+    // Craft a returned value that is profitable (returned > used)
+    // but whose profit is smaller than refundBonus (returned <= used + refundBonus).
+
+    val refundAmount = min(valInfo.validator.refundAmount, validators.maxRefundAmount);
+    val returnPricipal = used + refundBonus / 2;
+    val recoveredValue = returnPricipal + calculateGasFee(BASECHAIN, RECOVER_STAKE_OK_GAS) +
+    refundAmount;
+
+    val res = net.send(
+        address.fromWorkchainAndHash(MASTERCHAIN, expectedProxy),
+        createMessage({
+            bounce: false,
+            dest: pool.address,
+            value: recoveredValue,
+            body: RecoverStakeOk {
+                queryId: 0,
+                remaining: ProxyResponseData {
+                    validator,
+                    parity: false, // Returning round 0 stake
+                }.toCell()
+                    .beginParse(),
+            },
+        }),
+    );
+
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+
+    val poolAfter = pool.getPoolData();
+    expect(poolAfter.roundClosed).toBeFalse();
+
+    val expectedProfit = returnPricipal - used;
+    expect(expectedProfit).toBeGreater(0);
+    expect(expectedProfit).toBeLess(refundBonus);
+
+    val ownerShare = mulDivFloor(expectedProfit, poolBefore.ownerShare, SHARE_BASE);
+    val nominatorsProfit = expectedProfit - ownerShare;
+
+    // If the bonus were erroneously paid, profit would be negative refundBonus / 2
+    // and nominatorsAmount would decrease instead.
+    expect(poolAfter.nominatorsAmount as int).toBeApproxEqAbs(
+        poolBefore.nominatorsAmount + nominatorsProfit,
+        1,
+    );
+
+    // Each nominator should see their stake increase in price
+    val nmAfter = pool.getNominatorData(nmHash);
+    expect(nmAfter.amount).toBeGreater(nmBefore.amount);
+
+    // RoundInfoMessage should report the profit without bonus deduction
+    val reportTx = res.findTransaction<RoundInfoMessage>({ from: pool.address });
+    expect(reportTx).toBeNotNull();
+    val infoBody = reportTx!.loadBody<RoundInfoMessage>();
+    expect(infoBody.info.used).toEqual(used);
+    expect(infoBody.info.returned).toEqual(returnPricipal);
+    expect(infoBody.info.returned - infoBody.info.used).toEqual(expectedProfit);
+}
+
 get fun `test deep losses should put pool nm operations into insolvent state`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
