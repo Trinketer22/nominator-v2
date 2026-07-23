@@ -55,7 +55,7 @@ fun main() {
         GlobalValidatorsLimit {
             minTonPerValidator,
             maxTonPerValidator,
-            maxRefund,
+            maxRefund: maxRefund as uint33,
             refundBonus: refundBonus as uint33,
         },
         { value },

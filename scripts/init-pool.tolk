@@ -126,7 +126,7 @@ fun main() {
             ownerShare: ownerShare as uint25,
             maxTonPerValidator,
             minTonPerValidator,
-            maxRefund,
+            maxRefund: maxRefund as uint33,
             refundBonus: refundBonus as uint33,
             nominatorsSettings: NominatorsSettings {
                 maxNominators: maxNominators as uint10,

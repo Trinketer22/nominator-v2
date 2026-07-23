@@ -52,7 +52,7 @@ validator_limit_share$1 max_share:uint25 = ValidatorLimit;
 global_validators_limit$_
   min_ton_per_validator:Grams
   max_ton_per_validator:Grams
-  max_refund:Grams
+  max_refund:uint33
   refund_bonus:uint33
 = GlobalValidatorsLimit;
 
@@ -97,7 +97,7 @@ proxy_response_data$_
   parity:Bool
 = ProxyResponseData;
 
-init_pool_message#6238247d
+init_pool_message#aa863686
   query_id:uint64
   main_validator:MsgAddressInt
   round_allowance:RoundAllowance
@@ -105,7 +105,7 @@ init_pool_message#6238247d
   owner_share:uint25
   max_ton_per_validator:Grams
   min_ton_per_validator:Grams
-  max_refund:Grams
+  max_refund:uint33
   refund_bonus:uint33
   nominators_settings:^NominatorsSettings
 = InitPoolMessage;

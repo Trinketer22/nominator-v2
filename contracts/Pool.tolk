@@ -1223,7 +1223,7 @@ get fun get_validator_info_mtc(workchain: int, hash: int): GetValidatorInfo {
     return get_validator_info(address);
 }
 
-get fun get_limits_per_validator(): (coins, coins, coins, int) {
+get fun get_limits_per_validator(): (coins, coins, int, int) {
     val storage = lazy Storage.load();
     val validators = lazy storage.validators.load();
 

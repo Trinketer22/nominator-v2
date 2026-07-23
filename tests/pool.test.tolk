@@ -547,7 +547,7 @@ get fun `test if validator refund amount is clamped by maxRefundAmount + refundB
 
     // Now let's update maxRefund to some low value
     val (minStake, maxStake, _maxRefund, refundBonus) = pool.getLimitsPerValidator();
-    val newRefund = ton("0.25");
+    val newRefund = ton("0.25") as int;
     val updRes = pool.sendUpdateLimits(
         owner.address,
         DEFAULT_QUERY_ID,
