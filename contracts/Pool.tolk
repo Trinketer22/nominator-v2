@@ -600,6 +600,8 @@ fun onInternalMessage(in: InMessage) {
                 // from optimizing out the fromSlice call above.
                 assert(newStake.stakeAt >= 0, ErrorsPool.InvalidMessage);
 
+                // Validate stored parameters against network state every time
+                assertStakingLimit(validators.minTonPerValidator, validators.maxTonPerValidator);
                 val valLimit = valData.data.limit;
                 val stakeMax = getValidatorLimit(
                     valLimit,
@@ -1175,6 +1177,9 @@ get fun get_validator_info(address: address): GetValidatorInfo {
     var stakeNotAvailable = validator.data.isBanned || rotationStatus.roundIsClosed;
     stakeNotAvailable = stakeNotAvailable || ((roundMask & validator.data.usageState) > 0);
     stakeNotAvailable = stakeNotAvailable || ((roundMask & validator.data.roundParity as int) == 0);
+    val stakeLimits = lazy StakingLimits.load();
+    stakeNotAvailable = stakeNotAvailable || validators.minTonPerValidator < stakeLimits.minStake;
+    stakeNotAvailable = stakeNotAvailable || validators.maxTonPerValidator > stakeLimits.maxStake;
 
     var stakeable: coins;
     if (stakeNotAvailable) {
