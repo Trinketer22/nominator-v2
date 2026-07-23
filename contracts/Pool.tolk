@@ -877,6 +877,8 @@ fun onInternalMessage(in: InMessage) {
                 refundAmount = min(validator.data.refundAmount, validators.maxRefundAmount);
                 returned -= refundAmount;
             }
+            // Clamp returned to 0
+            returned = max(returned, 0);
 
             val (stakeReturned, bonusEarned, roundDone) = validators.coverUsageByAddress(
                 in.senderAddress,
@@ -896,6 +898,8 @@ fun onInternalMessage(in: InMessage) {
             var refundBonus = 0;
             if (bonusEarned) {
                 refundBonus = validators.refundBonus;
+                // For this one to be reachable, the returned > used
+                // By the margin of bonus.
                 returned -= refundBonus;
             }
 
