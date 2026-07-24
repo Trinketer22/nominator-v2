@@ -204,6 +204,7 @@ get fun `test owner should be able to remove validator`() {
 
     val testValidator = setupRandomValidator(pool, owner.address);
 
+    val validatorsBefore = pool.getPoolData().validators.load();
     val balanceBefore = testing.getAccountBalance(pool.address);
     val res = pool.sendRemoveValidator(
         owner.address,
@@ -220,6 +221,7 @@ get fun `test owner should be able to remove validator`() {
     val valdatorsUpd = lazy poolAfter.validators.load();
 
     expect(valdatorsUpd.validators.exists(testValidator)).toBeFalse();
+    expect(valdatorsUpd.activeValidators).toEqual(validatorsBefore.activeValidators - 1);
 }
 
 get fun `test owner should not be able to remove main validator`() {
@@ -291,6 +293,7 @@ get fun `test if validator has stake, it will get banned, instead of being remov
 
     val validatorAfter = pool.getValidatorInfo(testValidator);
     expect(validatorAfter.validator.isBanned).toBeTrue();
+    expect(pool.getPoolData().validators.load().activeValidators).toEqual(2);
 
     // And when banned validator comes for the next stake(if allowed), it won't get it.
 
@@ -326,6 +329,7 @@ get fun `test if validator has stake, it will get banned, instead of being remov
     val validatorsAfter = poolAfter.validators.load();
 
     expect(validatorsAfter.validators.exists(testValidator)).toBeFalse();
+    expect(validatorsAfter.activeValidators).toEqual(1);
 }
 
 get fun `test should not allow to add validator with validator pool share above SHARE_BASE`() {

@@ -83,6 +83,8 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
                     // Ban it from new stakes, but keeping the record till return
                     validatorData.isBanned = true;
                     validators.validators.set(msg.validator, validatorData);
+                } else {
+                    validators.activeValidators -= 1;
                 }
                 storage.validators = validators.toCell();
                 storage.save();

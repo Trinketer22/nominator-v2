@@ -588,6 +588,7 @@ fun onInternalMessage(in: InMessage) {
                         SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE | SEND_MODE_IGNORE_ERRORS,
                     );
                     validators.validators.delete(in.senderAddress);
+                    validators.activeValidators -= 1;
                     storage.validators = validators.toCell();
                     storage.save();
                     return;
