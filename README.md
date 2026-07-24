@@ -94,7 +94,7 @@ If processing pending deposits/withdrawals exhausts available gas or balance in 
 | `ownerShare` | `uint25` | The owner's cut of validator profits, expressed as parts of `SHARE_BASE` (2^24). For example, `ownerShare = SHARE_BASE` means 100% of profit goes to the owner; `0` means all profit goes to nominators. |
 | `maxTonPerValidator` | `coins` | Global maximum stake any single validator may use from the pool. |
 | `minTonPerValidator` | `coins` | Global minimum stake a validator must request for a `new_stake`. |
-| `maxRefund` | `coins` | Maximum TON refunded to a validator on top of recovered stake if the validator made a profit. |
+| `maxRefund` | `uint33` | Maximum TON refunded to a validator on top of recovered stake if the validator made a profit (capped at ~8.6 TON). |
 | `refundBonus` | `uint33` | Extra bonus paid on top of `maxRefund` for recovering a **profitable** round (capped at ~8.6 TON). See [Validator Refunds](#validator-refunds-automatic). |
 | `nominatorsSettings` | `Cell<NominatorsSettings>` | Encapsulated nominator configuration (see below). |
 
@@ -393,7 +393,7 @@ The pool exposes several getters for off-chain queries:
 | `get_validator_info(address: address)` | `GetValidatorInfo` | Validator data, usage records for both rounds, and a **projected `roundIndex` and `rotated` flag** after running the same vset rotation check as `UpdateVset`. It also returns the **current `stakeable` amount** — the TON the validator is allowed to use in the current round — computed by applying the exact same validation checks as `NewStake` (round state, parity, usage, limits, balance, owner undercapitalization, etc). The goal is to let off-chain tools know whether a validator is actually eligible to stake and how much, without attempting a real transaction. Because this getter evaluates `rotateRound`, calling it may advance the round state in the same way a real `UpdateVset` message would. |
 | `get_validator_info_mtc(workchain: int, hash: int)` | `GetValidatorInfo` | Same as `get_validator_info`, but accepts workchain + hash for masterchain tooling compatibility. |
 | `get_proxy_address(validator: address)` | `GetProxyAddressResult` | Even/odd proxy addresses for a given validator. |
-| `get_limits_per_validator()` | `(coins, coins, coins, int)` | `(minTonPerValidator, maxTonPerValidator, maxRefundAmount, refundBonus)`. |
+| `get_limits_per_validator()` | `(coins, coins, int, int)` | `(minTonPerValidator, maxTonPerValidator, maxRefundAmount, refundBonus)`. |
 | `get_nominator_minimal_stake()` | `GetMinStake` | `(minStake, minExpectedValue)` where `minExpectedValue = minStake + DEPOSIT_GAS`. |
 | `get_max_punishment(stake: int)` | `int` | Max punishment fine for a given stake amount, derived from config param 40. |
 | `get_pool_invariants()` | `PoolInvariants` | Audit/diagnostic getter that recomputes the cached nominator aggregates (share supply, pending deposits/withdrawals, nominator count) from the primary nominator map and reports whether they match the stored aggregates (`supplyMatch`, `pendingWithdrawalsMatch`, `pendingDepositsMatch`, `nmCountMatch`, `allMatch`). No assertion is performed — it reports only. Also exposes `nominatorsAmount` and a `projectedBalance` (`balance + stakeUsed - pendingDeposits - POOL_MIN_STORAGE`) for off-chain solvency monitoring, plus the recomputed values for debugging. |

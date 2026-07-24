@@ -476,7 +476,7 @@ get fun `test owner should be able to update global per validator parameters`() 
         minTonPerValidator - (random.range(100) + 1) * ton("100"),
         networkLimits.minStake,
     );
-    val newRefund = ton("100");
+    val newRefund = (random.range(7) + 1) * ton("1");
     val newRefundBonus = (random.range(7) + 1) * ton("1");
 
     val _res = pool.sendUpdateLimits(
@@ -519,7 +519,7 @@ get fun `test owner global validator limits should be checked against max > min`
         minTonPerValidator - (random.range(100) + 1) * ton("100"),
         networkLimits.minStake,
     );
-    val newRefund = ton("100");
+    val newRefund = (random.range(7) + 1) * ton("1");
     val newBonus = (random.range(7) + 1) * ton("1");
 
     val balanceBefore = testing.getAccountBalance(pool.address);
@@ -609,7 +609,7 @@ get fun `test only owner should be able to update global per validator parameter
 
     val newMax = maxTonPerValidator + (random.range(100) + 1) * ton("1000");
     val newMin = minTonPerValidator - (random.range(100) + 1) * ton("100");
-    val newRefund = ton("100");
+    val newRefund = (random.range(7) + 1) * ton("1");
 
     val stateBefore = getAccountData(pool.address);
     val res = pool.sendUpdateLimits(

@@ -547,7 +547,7 @@ get fun `test if validator refund amount is clamped by maxRefundAmount + refundB
 
     // Now let's update maxRefund to some low value
     val (minStake, maxStake, _maxRefund, refundBonus) = pool.getLimitsPerValidator();
-    val newRefund = ton("0.25");
+    val newRefund = ton("0.25") as int;
     val updRes = pool.sendUpdateLimits(
         owner.address,
         DEFAULT_QUERY_ID,
@@ -695,6 +695,115 @@ get fun `test if pool received loss, nominators stake should decrease in price`(
     expect(nmAfter.amount).toBeLess(nmBefore.amount);
 
     asssertSimpleWithdawal(pool, testNm);
+}
+
+get fun `test extreme slashing should not throw when refundAmount exceeds recovered value`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+
+    val valInfo = waitTillRecovery(pool, validator, elector.address);
+
+    val testNm = nominators.get(random.range(40 - 1));
+    val poolBefore = pool.getPoolData();
+    val validators = poolBefore.validators.load();
+    val nmBefore = pool.getNominatorData(testNm.getWorkchainAndHash().1);
+
+    val used = valInfo.usage.prevRoundUsage!.usage.tonUsed;
+    val refundAmount = min(valInfo.validator.refundAmount, validators.maxRefundAmount);
+    val expectedProxy = valInfo.usage.prevRoundUsage!.proxy;
+
+    // Simulate 99.9% slash: proxy sends only the guaranteed minimum ton("0.1")
+    val slashedReturn = ton("0.1");
+    val gasFee = calculateGasFee(BASECHAIN, RECOVER_STAKE_OK_GAS);
+
+    expect(refundAmount).toBeGreater(slashedReturn - gasFee);
+
+    val res = net.send(
+        address.fromWorkchainAndHash(MASTERCHAIN, expectedProxy),
+        createMessage({
+            bounce: false,
+            dest: pool.address,
+            value: slashedReturn,
+            body: RecoverStakeOk {
+                queryId: 0,
+                remaining: ProxyResponseData {
+                    validator,
+                    parity: false,
+                }.toCell()
+                    .beginParse(),
+            },
+        }),
+    );
+
+    // The transaction must always succeed.
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+
+    val poolAfter = pool.getPoolData();
+    val validatorsAfter = poolAfter.validators.load();
+
+    // StakeReturned should be emitted with returned = 0 (clamped)
+    val refundTx = res.findTransaction<StakeReturned>({
+        from: pool.address,
+        to: validator,
+    });
+    expect(refundTx).toBeNotNull();
+    val refundMsg = refundTx!.loadInMsg<StakeReturned>();
+    expect(refundMsg.loadBody().returned).toEqual(0);
+
+    // Validator still receives their refundAmount
+    val fwdFee = testing.getConfig().getMsgForwardPrices(validator.getWorkchain()).lumpPrice;
+    expect(getInternalMessageValue(refundMsg.info).grams as int).toBeApproxEqAbs(
+        refundAmount - fwdFee,
+        ton("0.006"),
+    );
+
+    // Loss should propagate to nominatorsAmount
+    // profit = 0 (clamped returned) - tonUsed = -tonUsed
+    val expectedProfit = -used;
+    val ownerShare = mulDivFloor(expectedProfit, poolBefore.ownerShare, SHARE_BASE);
+    val nominatorsProfit = expectedProfit - ownerShare;
+    expect(poolAfter.nominatorsAmount as int).toBeApproxEqAbs(
+        poolBefore.nominatorsAmount + nominatorsProfit,
+        1,
+    );
+
+    // Nominator stake should decrease
+    val nmAfter = pool.getNominatorData(testNm.getWorkchainAndHash().1);
+    expect(nmAfter.amount).toBeLess(nmBefore.amount);
+
+    // Even-round usageState bit should be cleared (parity: false = even)
+    val validatorAfter = pool.getValidatorInfo(validator);
+    expect(validatorAfter.validator.usageState & 2).toEqual(0);
+
+    // stakeUsed should be decremented
+    expect(validatorsAfter.stakeUsed).toEqual(validators.stakeUsed - used);
+
+    // refundAmount should be consumed
+    expect(validatorAfter.validator.refundAmount).toEqual(
+        max(valInfo.validator.refundAmount - refundAmount, 0),
+    );
+
+    // activeSlots should be decremented
+    expect(validatorsAfter.activeSlots).toEqual(validators.activeSlots - 1);
 }
 
 get fun `test stake profit smaller than refundBonus should not award bonus`() {

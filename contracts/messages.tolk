@@ -1,6 +1,6 @@
 import "types"
 
-struct (0x6238247d) InitPoolMessage {
+struct (0xaa863686) InitPoolMessage {
     queryId: uint64
     mainValidator: address
     roundAllowance: RoundAllowance = RoundAllowance.InAllRounds
@@ -8,7 +8,7 @@ struct (0x6238247d) InitPoolMessage {
     ownerShare: uint25
     maxTonPerValidator: coins
     minTonPerValidator: coins
-    maxRefund: coins
+    maxRefund: uint33
     refundBonus: uint33
     nominatorsSettings: Cell<NominatorsSettings>
 }
