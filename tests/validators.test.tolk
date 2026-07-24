@@ -206,6 +206,86 @@ get fun `test validator share limit should affect amount of stake allowed to be 
     // assertPoolNewStake(testValidator, pool, elector, elections, maxStake - 1);
 }
 
+get fun `test should not be able to stake if validators.minStake became below network minStake`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    val testStake = stakes.minStake * 2;
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+        testStake,
+    );
+
+    var config = testing.getConfig();
+    var curStakes = StakesConfig.fromCell(config.getParamRaw(STAKES_IDX));
+    val poolBefore = pool.getPoolData();
+    val validators = poolBefore.validators.load();
+
+    curStakes.minStake = validators.minTonPerValidator + 1;
+
+    config.setParamRaw(STAKES_IDX, curStakes.toCell());
+    expect(pool.getValidatorInfo(validator).stakeable).toBeGreater(0);
+    testing.setConfig(config);
+
+    val elections = announceElections(elector);
+    expect(pool.getValidatorInfo(validator).stakeable).toEqual(0);
+
+    assertNewStakeFailed(
+        ErrorsPool.MinStakeBelowNetworkLimit,
+        validator,
+        pool,
+        elector.address,
+        elections,
+        testStake,
+    );
+}
+
+get fun `test should not be able to stake if validators.maxTonPerValidator became above network maxStake`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
+
+    val testStake = stakes.minStake * 2;
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+        testStake,
+    );
+
+    var config = testing.getConfig();
+    var curStakes = StakesConfig.fromCell(config.getParamRaw(STAKES_IDX));
+    val poolBefore = pool.getPoolData();
+    val validators = poolBefore.validators.load();
+
+    curStakes.maxStake = validators.maxTonPerValidator - 1;
+
+    config.setParamRaw(STAKES_IDX, curStakes.toCell());
+    expect(pool.getValidatorInfo(validator).stakeable).toBeGreater(0);
+    testing.setConfig(config);
+
+    val elections = announceElections(elector);
+    expect(pool.getValidatorInfo(validator).stakeable).toEqual(0);
+
+    assertNewStakeFailed(
+        ErrorsPool.MaxStakeAboveNetworkLimit,
+        validator,
+        pool,
+        elector.address,
+        elections,
+        testStake,
+    );
+}
+
 get fun `test shoulld reject new stake when balance is below the requested value`() {
     val (elector, _stakes, _limits) = setupElector();
     var (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(10);
