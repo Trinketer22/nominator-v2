@@ -153,19 +153,18 @@ fun onInternalMessage(in: InMessage) {
             .beginParse();
 
         var outValue = 0;
-        var outMode = SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE;
+        var outMode: int;
 
-        if (msg is RecoverStakeOk) {
-            if (in.valueCoins < PROXY_MIN_STORAGE * 2) {
-                // Something extreeme happend and the whole stake is slashed
-                // Make sure at least something reaches the pool, even at storage expense
-                outValue = max(in.valueCoins, ton("0.1"));
-                outMode = SEND_MODE_PAY_FEES_SEPARATELY;
-            } else {
-                // Replenish
-                reserveGramsOnBalance(PROXY_MIN_STORAGE, RESERVE_MODE_AT_MOST);
-                outMode = SEND_MODE_CARRY_ALL_BALANCE;
-            }
+        // About RecoverStakeOk and NewStakeError we care, because those change state
+        if (in.valueCoins < PROXY_MIN_STORAGE * 2 && (msg is RecoverStakeOk || msg is NewStakeError)) {
+            // Something extreme happened and the whole stake is slashed
+            // Make sure at least something reaches the pool, even at storage expense
+            outValue = max(in.valueCoins, ton("0.1"));
+            outMode = SEND_MODE_PAY_FEES_SEPARATELY;
+        } else {
+            // Replenish for others
+            reserveGramsOnBalance(PROXY_MIN_STORAGE, RESERVE_MODE_AT_MOST);
+            outMode = SEND_MODE_CARRY_ALL_BALANCE;
         }
         // Fall through for the other message types
         proxyMsg(poolAddr, proxyResponse, outMode, outValue, false);

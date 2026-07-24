@@ -216,6 +216,53 @@ get fun `test elector non-recovery-ok messages should not burn proxy reserve`() 
     expect(balanceAfter as int).toBeApproxEqAbs(balanceBefore, ton("0.02"));
 }
 
+get fun `test NewStakeError with enough value replenishes proxy balance`() {
+    val (proxy, validator, _otherWallet, pool, electorAddr) = setupProxyTestContext();
+    val proxyData = ProxyResponseData {
+        validator: validator.address,
+        parity: false,
+    };
+
+    val balanceStart = testing.getAccountBalance(proxy.address);
+    expect(balanceStart).toEqual(PROXY_MIN_STORAGE);
+
+    // 10 NewStakes are forwarded to elector (PAY_FEES_SEPARATELY uses proxy reserve for gas)
+    repeat (10) {
+        val stakeRes = proxy.sendNewStake(
+            pool.address,
+            DEFAULT_QUERY_ID,
+            ton("1"),
+            beginCell().storeUint(0, 32).endCell().beginParse(),
+            { value: ton("1"), bounce: true },
+        );
+        expect(stakeRes).toHaveSuccessfulTx<NewStake>({ from: proxy.address, to: electorAddr });
+    }
+    val balanceAfterStakes = testing.getAccountBalance(proxy.address);
+    // Balance may not drop if bounces return the value, but should never exceed start
+    expect(balanceAfterStakes).toBeLess(balanceStart);
+
+    // 10 NewStakeErrors from elector with enough value (>= PROXY_MIN_STORAGE * 2)
+    // trigger replenish, restoring proxy to PROXY_MIN_STORAGE
+    repeat (10) {
+        val res = net.send(
+            electorAddr,
+            createMessage({
+                bounce: false,
+                dest: proxy.address,
+                value: ton("20"),
+                body: NewStakeError {
+                    queryId: DEFAULT_QUERY_ID,
+                    reason: 0,
+                    remaining: proxyData.toCell().beginParse(),
+                },
+            }),
+        );
+        expect(res).toHaveSuccessfulTx<NewStakeError>({ from: proxy.address, to: pool.address });
+    }
+    val balanceAfterReplenish = testing.getAccountBalance(proxy.address);
+    expect(balanceAfterReplenish).toEqual(PROXY_MIN_STORAGE);
+}
+
 get fun `test RecoverStakeOk with enough value replenishes proxy storage reserve`() {
     val (proxy, validator, _otherWallet, pool, electorAddr) = setupProxyTestContext();
     val proxyData = ProxyResponseData {
@@ -232,7 +279,7 @@ get fun `test RecoverStakeOk with enough value replenishes proxy storage reserve
         { value: ton("1"), bounce: true },
     );
     val balanceBeforeReplenish = testing.getAccountBalance(proxy.address);
-    expect(balanceBeforeReplenish).toBeLess(PROXY_MIN_STORAGE);
+    expect(balanceBeforeReplenish).toBeLessOrEqual(PROXY_MIN_STORAGE);
 
     val res = net.send(
         electorAddr,
