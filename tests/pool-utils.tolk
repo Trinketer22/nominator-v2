@@ -433,6 +433,7 @@ fun setupRandomValidator(
     allowance: RoundAllowance = RoundAllowance.InAllRounds,
 ): address {
     val newAddress = address.fromWorkchainAndHash(MASTERCHAIN, random.uint256());
+    val validatorsBefore = pool.getPoolData().validators.load();
 
     val res = pool.sendAddValidator(
         owner,
@@ -449,6 +450,9 @@ fun setupRandomValidator(
     } catch (_e) {
         Assert.fail("Failed to add validator");
     }
+
+    val validatorsAfter = pool.getPoolData().validators.load();
+    expect(validatorsAfter.activeValidators).toEqual(validatorsBefore.activeValidators + 1);
     return newAddress;
 }
 
