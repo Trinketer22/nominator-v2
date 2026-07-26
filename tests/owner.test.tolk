@@ -429,6 +429,29 @@ get fun `test should not be able to add same validator twice`() {
         previousState: prevState,
     });
 }
+get fun `test should not be able to add main validator address twice`() {
+    val (pool, owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(1);
+    val poolBefore = pool.getPoolData();
+    val mainAddress = poolBefore.validators.load().mainValidatorAddress;
+
+    val previousState = getAccountData(pool.address);
+    val res = pool.sendAddValidator(
+        owner.address,
+        DEFAULT_QUERY_ID,
+        mainAddress,
+        RoundAllowance.InAllRounds,
+        null,
+        { value: ton("1000") },
+    );
+
+    expect(res).toHaveRefund<AddValidator>({
+        from: pool.address,
+        to: owner.address,
+        error: ErrorsPool.ValidatorAlreadyExits,
+        previousState,
+    });
+
+}
 
 get fun `test should not be able to influence usage stats, by adding validator twice`() {
     // Amplified previous test
