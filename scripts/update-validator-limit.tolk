@@ -1,4 +1,3 @@
-import "@stdlib/strings"
 import "@acton/env"
 import "@acton/fmt"
 import "@acton/io"
@@ -17,33 +16,35 @@ fun main() {
     val pool = loadPool(poolAddress);
     val owner = poolOwner();
 
-    val validator = promptValidatorAddress("VALIDATOR_ADDRESS", "Enter validator address:");
-
-    val limitKind = promptStringWithEnvOrSelect(
-        "LIMIT_KIND",
-        "Limit type:",
-        ["ton", "share"],
-        0,
+    val validator = promptValidatorPicker(
+        pool,
+        "VALIDATOR_ADDRESS",
+        "Select validator to update the limit for:",
+        true,
     );
-    var limit: ValidatorLimit;
-    if (limitKind.equalTo("ton")) {
-        val maxTon = promptCoins("MAX_TON", "Max TON for this validator:", "300000");
-        limit = ValidatorLimitTon { maxTon };
-    } else {
-        val maxShare = promptIntWithEnvOrConst(
-            "MAX_SHARE",
-            "Max share (0..16777216):",
-            SHARE_BASE / 2,
+
+    val limitOpt = promptValidatorLimit();
+    if (limitOpt == null) {
+        Assert.fail(
+            "A per-validator limit must be selected (ton or share); 'none' clears the limit and is not supported by UpdateLimits (ValidatorSpecific)",
         );
-        assert(maxShare >= 0 && maxShare <= SHARE_BASE, 114);
-        // SAFETY: maxShare is range-checked above to fit uint25 (SHARE_BASE = 2^24 - 1).
-        limit = ValidatorLimitShare { maxShare: maxShare as uint25 };
     }
+    val limit = limitOpt!;
 
     val queryId = (env<int>("QUERY_ID") ?? 1) as uint64;
     val value = promptCoins("MSG_VALUE", "Message value (TON):", "1");
 
-    println("Updating per-validator limit for {} (kind={})", validator, limitKind);
+    println("Updating per-validator limit for {}", validator);
+
+    confirmSend(
+        format(
+            "Update per-validator limit\n  pool:       {}\n  validator:  {}\n  limit:      {}\n  value:      {:gram}",
+            pool.address,
+            validator,
+            limit,
+            value,
+        ),
+    );
 
     val res = pool.sendUpdateLimits(
         owner.address,
@@ -56,44 +57,54 @@ fun main() {
         Assert.fail("UpdateLimits (ValidatorSpecific) message was not accepted by network");
     }
 
-    val poolAfter = pool.getPoolData();
-    val validatorsAfter = lazy poolAfter.validators.load();
-    val lookup = validatorsAfter.validators.get(validator);
-    assert(lookup.isFound, 600);
-    val rec = lookup.loadValue();
-
-    var applied = false;
-    var ok = false;
-    match (limit) {
-        ValidatorLimitTon => {
-            if (rec.limit is ValidatorLimitTon) {
-                applied = true;
-                val got = rec.limit as ValidatorLimitTon;
-                val expected = limit as ValidatorLimitTon;
-                ok = got.maxTon == expected.maxTon;
-            }
-        }
-        ValidatorLimitShare => {
-            if (rec.limit is ValidatorLimitShare) {
-                applied = true;
-                val got = rec.limit as ValidatorLimitShare;
-                val expected = limit as ValidatorLimitShare;
-                ok = got.maxShare == expected.maxShare;
-            }
-        }
+    // Read the validator's record back from the persisted validators cell. We
+    // account for the main validator (stored in mainValidatorData, NOT in the
+    // validators map) as well as extra validators. The limit is compared by
+    // cell hash because the ValidatorLimit union (ValidatorLimitTon |
+    // ValidatorLimitShare) has no explicit opcodes, so deserializing it back
+    // via `match` is unreliable off-chain.
+    val rec = lookupValidatorRecord(pool, validator);
+    if (rec == null) {
+        Assert.fail(
+            format(
+                "Validator {} was not found in pool {} after UpdateLimits",
+                validator,
+                pool.address,
+            ),
+        );
     }
+    val storedLimit = rec!.limit;
 
-    if (applied && ok) {
+    val expectedLimitCell = (limit as ValidatorLimit).toCell();
+    val applied = storedLimit != null && storedLimit!.toCell().hash() == expectedLimitCell.hash();
+
+    if (applied) {
         println("OK: per-validator limit updated for {} on pool {}", validator, pool.address);
     } else {
         // The contract rejected the new limit (e.g. below global min, above global max,
-        // or invalid share). Surface the refund error code for diagnostics.
+        // or invalid share). A refund with errorCode=0 means success; only a non-zero
+        // errorCode indicates an actual rejection.
         val refundTx = res.findTransaction<RefundMessage>({
             from: pool.address,
             to: owner.address,
         });
-        assert(refundTx != null, 231);
+        if (refundTx == null) {
+            Assert.fail(
+                format(
+                    "UpdateLimits (ValidatorSpecific) for {} was not applied and no refund transaction was observed",
+                    validator,
+                ),
+            );
+        }
         val refundMsg = refundTx.loadBody<RefundMessage>();
+        if (refundMsg.context.errorCode == 0) {
+            Assert.fail(
+                format(
+                    "UpdateLimits (ValidatorSpecific) for {} reported success (errorCode=0) but the limit was not stored as expected",
+                    validator,
+                ),
+            );
+        }
         Assert.fail(
             format(
                 "UpdateLimits (ValidatorSpecific) rejected by contract: error code {}",

@@ -1,4 +1,5 @@
 import "@acton/env"
+import "@acton/fmt"
 import "@acton/io"
 import "@acton/emulation/network"
 import "@acton/emulation/scripts"
@@ -15,8 +16,12 @@ fun main() {
     val pool = loadPool(poolAddress);
     val owner = poolOwner();
 
-    val validator = promptValidatorAddress("VALIDATOR_ADDRESS", "Enter validator address:");
+    val validator = promptNewValidatorAddress(
+        "VALIDATOR_ADDRESS",
+        "Enter validator address to add:",
+    );
     val roundAllowance = roundAllowanceFromEnvOrPrompt();
+    val limit = promptValidatorLimit();
     val value = promptCoins("ADD_VALIDATOR_VALUE", "Value to send with AddValidator (TON):", "250");
     val queryId = (env<int>("QUERY_ID") ?? 1) as uint64;
 
@@ -28,12 +33,23 @@ fun main() {
 
     println("Adding validator {} (roundAllowance={})", validator, roundAllowance);
 
+    confirmSend(
+        format(
+            "Add validator\n  pool:           {}\n  validator:      {}\n  round allowance: {}\n  limit:          {}\n  value:          {:gram}",
+            pool.address,
+            validator,
+            roundAllowance,
+            limit == null ? "none (uses global)" : format("{}", limit),
+            value,
+        ),
+    );
+
     val res = pool.sendAddValidator(
         owner.address,
         queryId,
         validator,
         roundAllowance,
-        null,
+        limit,
         { value },
     );
 
@@ -43,8 +59,20 @@ fun main() {
 
     expectValidatorPresent(pool, validator);
 
-    val info = pool.getValidatorInfo(validator);
-    assertEqual(info.validator.roundParity, roundAllowance, "validator.roundParity");
+    // Read the validator's roundParity from the persisted validators cell
+    // (accounting for the main validator) instead of get_validator_info, which
+    // is unreliable off-chain due to configParam(34) dependency.
+    val rec = lookupValidatorRecord(pool, validator);
+    if (rec == null) {
+        Assert.fail(
+            format(
+                "Validator {} was not found in pool {} after AddValidator",
+                validator,
+                pool.address,
+            ),
+        );
+    }
+    assertEqual(rec!.roundParity, roundAllowance, "validator.roundParity");
 
     if (presentBefore) {
         // The contract refunds a duplicate add with ValidatorAlreadyExits.
@@ -52,7 +80,14 @@ fun main() {
             from: pool.address,
             to: owner.address,
         });
-        assert(refundTx != null, 250);
+        if (refundTx == null) {
+            Assert.fail(
+                format(
+                    "Validator {} was already present but no ValidatorAlreadyExits refund was observed",
+                    validator,
+                ),
+            );
+        }
         val refundMsg = refundTx.loadBody<RefundMessage>();
         assertEqual(refundMsg.context.errorCode as int, 601, "ValidatorAlreadyExits error code");
         println("OK: validator {} already present in pool {}", validator, pool.address);

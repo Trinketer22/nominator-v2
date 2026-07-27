@@ -43,6 +43,10 @@ fun main() {
         null,
     );
 
+    // Optional per-validator limit for the main validator. "none" means the
+    // main validator uses the global limits.
+    val mainValidatorLimit = promptValidatorLimit();
+
     val deployValue = promptCoins(
         "INIT_VALUE",
         "Init value (TON, covers proxies + reserve):",
@@ -122,7 +126,7 @@ fun main() {
             queryId: 0,
             mainValidator,
             roundAllowance: RoundAllowance.InAllRounds,
-            limit: null,
+            limit: mainValidatorLimit,
             ownerShare: ownerShare as uint25,
             maxTonPerValidator,
             minTonPerValidator,
@@ -135,6 +139,37 @@ fun main() {
             }.toCell(),
         },
     });
+
+    confirmSend(
+        format(
+            "{}{}{}",
+            format(
+                "Init pool\n  pool:               {}\n  owner:              {}\n  main validator:     {}\n  validator limit:    {}",
+                pool.address,
+                owner.address,
+                mainValidator,
+                mainValidatorLimit == null
+                    ? "none (uses global)"
+                    : format("{}", mainValidatorLimit),
+            ),
+            format(
+                "\n  owner share:        {}/{}\n  init value:         {:gram}\n  max TON/validator:  {:gram}\n  min TON/validator:  {:gram}",
+                ownerShare,
+                SHARE_BASE,
+                deployValue,
+                maxTonPerValidator,
+                minTonPerValidator,
+            ),
+            format(
+                "\n  max refund:         {:gram}\n  refund bonus:       {:gram}\n  max nominators:     {}\n  min stake:          {:gram}\n  min withdrawable:   {:gram}",
+                maxRefund,
+                refundBonus,
+                maxNominators,
+                minStake,
+                minWithdrawableRewards,
+            ),
+        ),
+    );
 
     val res = net.send(owner.address, initMessage);
     if (res.waitForFirstTransaction() == null) {

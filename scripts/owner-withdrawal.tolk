@@ -56,6 +56,17 @@ fun main() {
         available,
     );
 
+    confirmSend(
+        format(
+            "Owner withdrawal\n  pool:      {}\n  owner:     {}\n  requested: {:gram}\n  available: {:gram}\n  value:     {:gram}",
+            pool.address,
+            owner.address,
+            requested,
+            available,
+            value,
+        ),
+    );
+
     val res = pool.sendOwnerWithdrawal(
         owner.address,
         queryId,
@@ -73,7 +84,15 @@ fun main() {
     });
 
     if (successTx != null) {
-        assert(requested <= available, 230);
+        if (requested > available) {
+            Assert.fail(
+                format(
+                    "OwnerWithdrawal succeeded but requested ({:gram}) exceeded available ({:gram})",
+                    requested,
+                    available,
+                ),
+            );
+        }
         println(
             "OK: withdrew {:gram} from pool {} to owner {}",
             requested,
@@ -86,10 +105,24 @@ fun main() {
             from: pool.address,
             to: owner.address,
         });
-        assert(refundTx != null, 231);
+        if (refundTx == null) {
+            Assert.fail(
+                "OwnerWithdrawal was refused but no refund transaction was observed",
+            );
+        }
         val refundMsg = refundTx.loadBody<RefundMessage>();
-        assert(refundMsg.context.errorCode != 0, 232);
-        assert(requested > available, 233);
+        if (refundMsg.context.errorCode == 0) {
+            Assert.fail("OwnerWithdrawal refund carried a zero error code");
+        }
+        if (!(requested > available)) {
+            Assert.fail(
+                format(
+                    "OwnerWithdrawal was refunded but requested ({:gram}) did not exceed available ({:gram})",
+                    requested,
+                    available,
+                ),
+            );
+        }
         println(
             "OK: withdrawal refused (error={}) since requested={:gram} > available={:gram}",
             refundMsg.context.errorCode,

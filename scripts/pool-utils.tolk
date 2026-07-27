@@ -1,3 +1,4 @@
+import "@stdlib/strings"
 import "@acton/env"
 import "@acton/fmt"
 import "@acton/io"
@@ -16,8 +17,31 @@ const DEFAULT_MSG_VALUE = ton("1")
 const DEFAULT_ADD_VALIDATOR_VALUE = ton("250")
 const EMUL_SNAPSHOT_PATH = "build/cache/emul-snapshot.json"
 
+// Shows a confirmation dialog summarizing the pending transaction before it is
+// sent to the network. Lets the user interrupt the script by answering "no".
+// Set the BATCH env var (e.g. BATCH=1) to skip the dialog for non-interactive
+// automation.
+fun confirmSend(summary: string): void {
+    if (env<bool>("BATCH") ?? false) {
+        return;
+    }
+    val ok = confirm(
+        format("{}\n\nIs it ok to send this transaction?", summary),
+        false,
+        "Answer 'no' to abort without sending anything to the network.",
+    );
+    if (!ok) {
+        Assert.fail("Transaction aborted by user before sending to the network");
+    }
+}
+
 fun poolOwner(): ActonWallet {
-    return scripts.wallet(env<string>("DEPLOYER_WALLET") ?? "deployer");
+    // Use promptWallet so the script is compatible with `--tonconnect`: in
+    // broadcast mode with TON Connect the chosen wallet name resolves to the
+    // connected wallet, and in emulation mode any name is accepted.
+    val walletName = env<string>("DEPLOYER_WALLET") ??
+    promptWallet("Select the pool owner wallet:");
+    return scripts.wallet(walletName);
 }
 
 fun poolId(): uint32 {
@@ -65,7 +89,9 @@ fun loadPool(poolAddress: address): Pool {
     loadEmulationSnapshot();
 
     val pool = Pool.fromAddress(poolAddress);
-    assert(scripts.isContractDeployed(pool.address), 150);
+    if (!scripts.isContractDeployed(pool.address)) {
+        Assert.fail(format("Pool contract is not deployed at {}", pool.address));
+    }
     return pool;
 }
 
@@ -77,18 +103,30 @@ fun promptPoolAddress(): address {
     return promptAddress("Pool address:", null, "EQ... / kQ... / Ef... / kf...");
 }
 
+// Looks up a validator record in the persisted validators cell, accounting
+// for the main validator (stored in mainValidatorData, NOT in the validators
+// map). Returns null when the validator is not found.
+// We avoid get_validator_info because it calls rotateRound →
+// blockchain.configParam(34), which is unreliable off-chain (DEFAULT_CONFIG
+// in acton script) and may throw, masking the actual on-chain state.
+fun lookupValidatorRecord(pool: Pool, validator: address): Validator? {
+    val poolData = pool.getPoolData();
+    val validators = lazy poolData.validators.load();
+    if (validator == validators.mainValidatorAddress) {
+        val mainData = lazy validators.mainValidatorData.load();
+        return mainData;
+    }
+    val lookup = validators.validators.get(validator);
+    if (lookup.isFound) {
+        return lookup.loadValue();
+    }
+    return null;
+}
+
 fun ensureValidatorAdded(pool: Pool, validator: address): void {
     val owner = poolOwner();
 
-    var alreadyThere = false;
-    try {
-        val _info = pool.getValidatorInfo(validator);
-        alreadyThere = true;
-    } catch (_e) {
-        alreadyThere = false;
-    }
-
-    if (alreadyThere) {
+    if (lookupValidatorRecord(pool, validator) != null) {
         return;
     }
 
@@ -113,18 +151,26 @@ fun ensureValidatorAdded(pool: Pool, validator: address): void {
     println("Validator {} added to pool {}", validator, pool.address);
 }
 
+// Verifies a validator is present in the pool. Reads the persisted validators
+// cell (accounting for the main validator) instead of get_validator_info,
+// which is unreliable off-chain due to configParam(34) dependency.
 fun expectValidatorPresent(pool: Pool, validator: address): void {
-    val poolData = pool.getPoolData();
-    val validators = lazy poolData.validators.load();
-    val lookup = validators.validators.get(validator);
-    assert(lookup.isFound, 200);
+    if (lookupValidatorRecord(pool, validator) == null) {
+        Assert.fail(
+            format("Validator {} is not present in pool {}", validator, pool.address),
+        );
+    }
 }
 
 fun expectValidatorAbsent(pool: Pool, validator: address): void {
-    val poolData = pool.getPoolData();
-    val validators = lazy poolData.validators.load();
-    val lookup = validators.validators.get(validator);
-    assert(!lookup.isFound, 201);
+    // A removed validator with no outstanding stake is deleted from the
+    // validators map. The main validator cannot be removed, so absence is
+    // checked only against the extra-validators map.
+    if (lookupValidatorRecord(pool, validator) != null) {
+        Assert.fail(
+            format("Validator {} is still present in pool {}", validator, pool.address),
+        );
+    }
 }
 
 fun assertEqual<T>(actual: T, expected: T, label: string): void {
@@ -280,7 +326,9 @@ fun promptCoins(envVar: string, message: string, defaultGrams: string): coins {
 fun promptCoinsRequired(envVar: string, message: string): coins {
     val fromEnv = env<coins>(envVar);
     if (fromEnv != null) {
-        assert(fromEnv > 0, 241);
+        if (fromEnv <= 0) {
+            Assert.fail(format("{} must be greater than zero (got {:gram})", envVar, fromEnv));
+        }
         return fromEnv;
     }
     val input = prompt(message, "amount in TON (e.g. 1.5)", "");
@@ -299,12 +347,100 @@ fun promptAddressWithEnv(envVar: string, message: string, default: address? = nu
     return promptAddress(message, default);
 }
 
-fun promptValidatorAddress(envVar: string, message: string): address {
+// Builds a list of known validator addresses from the pool's persisted
+// validators cell (main validator + extra validators). Returns the addresses
+// together with their picker labels (the main validator is tagged "(main)").
+fun collectValidatorOptions(pool: Pool, includeMain: bool): (array<address>, array<string>) {
+    var addresses: array<address> = [];
+    var labels: array<string> = [];
+    val poolData = pool.getPoolData();
+    val validators = lazy poolData.validators.load();
+    if (includeMain) {
+        addresses.push(validators.mainValidatorAddress);
+        labels.push(format("{} (main)", validators.mainValidatorAddress));
+    }
+    if (!validators.validators.isEmpty()) {
+        var iter = validators.validators.findFirst();
+        while (iter.isFound) {
+            val addr = iter.getKey();
+            addresses.push(addr);
+            labels.push(format("{}", addr));
+            iter = validators.validators.iterateNext(iter);
+        }
+    }
+    return (addresses, labels);
+}
+
+// Prompts for a validator address using a picker built from the pool's known
+// validators instead of a free-form text prompt. An env var short-circuits the
+// picker for non-interactive runs.
+fun promptValidatorPicker(
+    pool: Pool,
+    envVar: string,
+    message: string,
+    includeMain: bool,
+): address {
+    val fromEnv = env<address>(envVar);
+    if (fromEnv != null) {
+        return fromEnv;
+    }
+
+    val (addresses, labels) = collectValidatorOptions(pool, includeMain);
+
+    if (labels.size() == 0) {
+        Assert.fail("No validators available to pick from in this pool");
+    }
+
+    val choice = select(message, labels, 0);
+
+    var idx = 0;
+    while (idx < addresses.size()) {
+        if (choice.equalTo(labels.get(idx))) {
+            return addresses.get(idx);
+        }
+        idx += 1;
+    }
+    Assert.fail(format("No validator selected from picker (choice='{}')", choice));
+}
+
+// Prompts for a validator address to ADD (a brand-new validator, not present in
+// the pool yet). Uses an env var or a free-form address prompt, since there is
+// nothing to pick from for a validator that does not exist yet.
+fun promptNewValidatorAddress(envVar: string, message: string): address {
     val fromEnv = env<address>(envVar);
     if (fromEnv != null) {
         return fromEnv;
     }
     return promptAddress(message, null, "EQ... / kQ... / Ef... / kf...");
+}
+
+// Prompts for a per-validator limit (none / ton / share). Returns null when
+// "none" is selected (the validator will use the global limits). Env vars
+// LIMIT_KIND, MAX_TON and MAX_SHARE short-circuit the prompts.
+fun promptValidatorLimit(): ValidatorLimit? {
+    val limitKind = promptStringWithEnvOrSelect(
+        "LIMIT_KIND",
+        "Limit type for the main validator:",
+        ["none", "ton", "share"],
+        0,
+    );
+    if (limitKind.equalTo("none")) {
+        return null;
+    }
+    if (limitKind.equalTo("ton")) {
+        val maxTon = promptCoins("MAX_TON", "Max TON for this validator:", "300000");
+        return ValidatorLimitTon { maxTon };
+    }
+    val maxShare = promptIntWithEnvOrConst(
+        "MAX_SHARE",
+        "Max share (0..16777216):",
+        SHARE_BASE / 2,
+    );
+    if (maxShare < 0 || maxShare > SHARE_BASE) {
+        Assert.fail(format("Max share {} is out of range (0..{})", maxShare, SHARE_BASE));
+    }
+    // SAFETY: maxShare is range-checked above to fit uint25 (SHARE_BASE = 2^24 - 1).
+    return ValidatorLimitShare { maxShare: maxShare as uint25 };
 }
 
 fun promptIntWithEnvOrConst(envVar: string, message: string, default: int): int {
@@ -331,12 +467,23 @@ fun promptStringWithEnvOrSelect(
 fun roundAllowanceFromEnvOrPrompt(): RoundAllowance {
     val fromEnv = env<int>("VALIDATOR_ROUND_ALLOWANCE");
     if (fromEnv != null) {
-        assert(fromEnv >= 1 && fromEnv <= 3, 115);
+        if (fromEnv < 1 || fromEnv > 3) {
+            Assert.fail(
+                format(
+                    "VALIDATOR_ROUND_ALLOWANCE must be 1 (odd), 2 (even), or 3 (all), got {}",
+                    fromEnv,
+                ),
+            );
+        }
         // SAFETY: range-checked above to 1..3 which are exactly the RoundAllowance variants.
         return fromEnv as RoundAllowance;
     }
     val parsed = promptInt("Validator round allowance (1=odd, 2=even, 3=all):", "3", "1, 2, or 3");
-    assert(parsed >= 1 && parsed <= 3, 115);
+    if (parsed < 1 || parsed > 3) {
+        Assert.fail(
+            format("Round allowance must be 1 (odd), 2 (even), or 3 (all), got {}", parsed),
+        );
+    }
     // SAFETY: range-checked above to 1..3.
     return parsed as RoundAllowance;
 }

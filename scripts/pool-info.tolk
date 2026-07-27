@@ -1,6 +1,5 @@
 import "@stdlib/strings"
 import "@acton/env"
-import "@acton/fmt"
 import "@acton/io"
 import "@acton/prompts"
 import "@acton/emulation/testing"
@@ -283,22 +282,7 @@ fun main() {
             validator = validatorEnv;
         } else {
             // Build a picker from the known validators in the persisted cell.
-            val validators = lazy poolData.validators.load();
-            var options: array<string> = [];
-            var addresses: array<address> = [];
-            // Main validator first
-            options.push(format("{} (main)", validators.mainValidatorAddress));
-            addresses.push(validators.mainValidatorAddress);
-            // Extra validators
-            if (!validators.validators.isEmpty()) {
-                var iter = validators.validators.findFirst();
-                while (iter.isFound) {
-                    val addr = iter.getKey();
-                    options.push(format("{}", addr));
-                    addresses.push(addr);
-                    iter = validators.validators.iterateNext(iter);
-                }
-            }
+            val (addresses, options) = collectValidatorOptions(pool, true);
             val choice = select("Select validator:", options, 0);
             var foundIdx = -1;
             var idx = 0;

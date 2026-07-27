@@ -1,4 +1,5 @@
 import "@acton/env"
+import "@acton/fmt"
 import "@acton/io"
 import "@acton/prompts"
 import "@acton/emulation/network"
@@ -51,6 +52,17 @@ fun main() {
         value: deployValue,
         dest: { stateInit: pool.stateInit! },
     });
+
+    confirmSend(
+        format(
+            "Deploy pool\n  owner:      {}\n  pool id:    {}\n  pool addr:  {}\n  deployer:   {}\n  value:      {:gram}",
+            owner,
+            poolId,
+            pool.address,
+            deployer.address,
+            deployValue,
+        ),
+    );
 
     val res = net.send(deployer.address, deployMessage);
     if (res.waitForFirstTransaction() == null) {

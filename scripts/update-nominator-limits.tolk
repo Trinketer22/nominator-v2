@@ -1,4 +1,5 @@
 import "@acton/env"
+import "@acton/fmt"
 import "@acton/io"
 import "@acton/emulation/network"
 import "@acton/emulation/scripts"
@@ -21,7 +22,11 @@ fun main() {
         "Max nominators:",
         poolData.maxNominators as int,
     );
-    assert(newMaxNmRaw >= 0 && newMaxNmRaw <= 1023, 114);
+    if (newMaxNmRaw < 0 || newMaxNmRaw > 1023) {
+        Assert.fail(
+            format("Max nominators {} is out of range (0..1023)", newMaxNmRaw),
+        );
+    }
     // SAFETY: range-checked above to fit uint10.
     val newMaxNm = newMaxNmRaw as uint10;
     val newMinStake = promptCoins(
@@ -36,6 +41,15 @@ fun main() {
         "Updating nominator limits: maxNominators={} minStake={:gram}",
         newMaxNm,
         newMinStake,
+    );
+
+    confirmSend(
+        format(
+            "Update nominator limits\n  pool:            {}\n  max nominators:  {}\n  min stake:       {:gram}",
+            pool.address,
+            newMaxNm,
+            newMinStake,
+        ),
     );
 
     val res = pool.sendUpdateLimits(

@@ -49,6 +49,17 @@ fun main() {
         refundBonus,
     );
 
+    confirmSend(
+        format(
+            "Update global validator limits\n  pool:               {}\n  min TON/validator:  {:gram}\n  max TON/validator:  {:gram}\n  max refund:         {:gram}\n  refund bonus:       {:gram}",
+            pool.address,
+            minTonPerValidator,
+            maxTonPerValidator,
+            maxRefund,
+            refundBonus,
+        ),
+    );
+
     val res = pool.sendUpdateLimits(
         owner.address,
         queryId,
@@ -79,7 +90,11 @@ fun main() {
             from: pool.address,
             to: owner.address,
         });
-        assert(refundTx != null, 231);
+        if (refundTx == null) {
+            Assert.fail(
+                "UpdateLimits (GlobalValidatorsLimit) was rejected but no refund transaction was observed",
+            );
+        }
         val refundMsg = refundTx.loadBody<RefundMessage>();
         Assert.fail(
             format(

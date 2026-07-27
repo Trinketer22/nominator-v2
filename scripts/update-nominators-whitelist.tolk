@@ -83,6 +83,25 @@ fun main() {
         count == 1 ? "y" : "ies",
     );
 
+    var wlSummary = "  entries:";
+    if (whitelist.isEmpty()) {
+        wlSummary = format("{} (clearing whitelist)", wlSummary);
+    } else {
+        var wlIter = whitelist.findFirst();
+        while (wlIter.isFound) {
+            wlSummary = format("{}\n    {}", wlSummary, wlIter.getKey());
+            wlIter = whitelist.iterateNext(wlIter);
+        }
+    }
+
+    confirmSend(
+        format(
+            "Update nominators whitelist\n  pool:  {}\n{}",
+            pool.address,
+            wlSummary,
+        ),
+    );
+
     val res = pool.sendUpdateNominatorsWhitelist(
         owner.address,
         queryId,
@@ -108,16 +127,24 @@ fun main() {
         if (addr == null) {
             verifyDone = true;
         } else {
-            assert(storedWl.exists(addr), 220);
+            if (!storedWl.exists(addr)) {
+                Assert.fail(
+                    format("Whitelist entry {} ({}) was not stored on the pool", name, addr),
+                );
+            }
             j += 1;
         }
     }
 
     if (whitelist.isEmpty()) {
-        assert(storedWl.isEmpty(), 221);
+        if (!storedWl.isEmpty()) {
+            Assert.fail("Whitelist was expected to be cleared but is non-empty on the pool");
+        }
         println("OK: nominators whitelist cleared on pool {}", pool.address);
     } else {
-        assert(!storedWl.isEmpty(), 222);
+        if (storedWl.isEmpty()) {
+            Assert.fail("Whitelist was expected to be non-empty but is cleared on the pool");
+        }
         println("OK: nominators whitelist updated on pool {}", pool.address);
     }
 

@@ -1,4 +1,5 @@
 import "@acton/env"
+import "@acton/fmt"
 import "@acton/io"
 import "@acton/emulation/network"
 import "@acton/emulation/scripts"
@@ -23,6 +24,14 @@ fun main() {
     val poolBefore = pool.getPoolData();
     val nominatorsAmountBefore = poolBefore.nominatorsAmount;
 
+    confirmSend(
+        format(
+            "Add funds\n  pool:   {}\n  amount: {:gram}",
+            pool.address,
+            value,
+        ),
+    );
+
     val res = pool.sendAddFunds(
         owner.address,
         queryId,
@@ -38,7 +47,15 @@ fun main() {
 
     // AddFunds just accepts funds; pool balance must increase by roughly the sent value
     // (modulo storage fees and gas). Nominator accounting must not change.
-    assert(balanceAfter > balanceBefore, 240);
+    if (!(balanceAfter > balanceBefore)) {
+        Assert.fail(
+            format(
+                "Pool balance did not increase after AddFunds (before={:gram}, after={:gram})",
+                balanceBefore,
+                balanceAfter,
+            ),
+        );
+    }
     assertEqual(poolAfter.nominatorsAmount, nominatorsAmountBefore, "nominatorsAmount");
     assertEqual(poolAfter.poolSupply, poolBefore.poolSupply, "poolSupply");
 
