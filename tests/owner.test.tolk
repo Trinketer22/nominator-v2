@@ -429,6 +429,7 @@ get fun `test should not be able to add same validator twice`() {
         previousState: prevState,
     });
 }
+
 get fun `test should not be able to add main validator address twice`() {
     val (pool, owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(1);
     val poolBefore = pool.getPoolData();
@@ -450,7 +451,6 @@ get fun `test should not be able to add main validator address twice`() {
         error: ErrorsPool.ValidatorAlreadyExits,
         previousState,
     });
-
 }
 
 get fun `test should not be able to influence usage stats, by adding validator twice`() {

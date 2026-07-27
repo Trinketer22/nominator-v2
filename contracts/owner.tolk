@@ -42,7 +42,8 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
                 newValidator.deployProxy(msg.validator, storage.owner, valueLeft, msg.queryId);
                 val newAdded = validators.validators.addIfNotExists(msg.validator, newValidator);
 
-                assert(newAdded && msg.validator != validators.mainValidatorAddress, ErrorsPool.ValidatorAlreadyExits);
+                assert(newAdded &&
+                msg.validator != validators.mainValidatorAddress, ErrorsPool.ValidatorAlreadyExits);
                 validators.activeValidators += 1;
                 assert(validators.activeValidators <= MAX_VALIDATORS, ErrorsPool.TooManyValidators);
 

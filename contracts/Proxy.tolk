@@ -156,7 +156,9 @@ fun onInternalMessage(in: InMessage) {
         var outMode: int;
 
         // About RecoverStakeOk and NewStakeError we care, because those change state
-        if (in.valueCoins < PROXY_MIN_STORAGE * 2 && (msg is RecoverStakeOk || msg is NewStakeError)) {
+        if (
+            in.valueCoins < PROXY_MIN_STORAGE * 2 && (msg is RecoverStakeOk || msg is NewStakeError)
+        ) {
             // Something extreme happened and the whole stake is slashed
             // Make sure at least something reaches the pool, even at storage expense
             outValue = max(in.valueCoins, ton("0.1"));
