@@ -55,8 +55,7 @@ struct ValidatorsData {
     stakeUsed: coins = 0
     minTonPerValidator: coins
     maxTonPerValidator: coins
-    maxRefundAmount: uint33 = ton("5") as int
-    refundBonus: uint33 = ton("1") as int
+    refundBonus: uint33 = ton("3") as int
     validators: map<address, Validator> = []
     curRound: Cell<RoundData>
     prevRound: Cell<RoundData>
@@ -75,7 +74,6 @@ type ValidatorLimit = ValidatorLimitTon | ValidatorLimitShare
 struct GlobalValidatorsLimit {
     minTonPerValidator: coins
     maxTonPerValidator: coins
-    maxRefund: uint33
     refundBonus: uint33
 }
 
@@ -107,7 +105,6 @@ struct Validator {
     evenProxy: uint256? = null
     oddProxy: uint256? = null
     limit: ValidatorLimit? = null
-    refundAmount: coins
     roundParity: RoundAllowance = RoundAllowance.InAllRounds
 }
 

@@ -30,7 +30,6 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
                     usageState: 0,
                     roundParity: msg.roundAllowance,
                     limit: msg.limits,
-                    refundAmount: 0,
                 };
 
                 val nRounds = max(msg.roundAllowance as int - 1, 1);
@@ -169,7 +168,6 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
                         );
                         validators.minTonPerValidator = msg.limit.minTonPerValidator;
                         validators.maxTonPerValidator = msg.limit.maxTonPerValidator;
-                        validators.maxRefundAmount = msg.limit.maxRefund;
                         validators.refundBonus = msg.limit.refundBonus;
                     }
                     ValidatorSpecific => {

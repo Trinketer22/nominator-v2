@@ -696,8 +696,8 @@ get fun `test validator should be able to recover stake and rotate round`() {
     var profit = getInternalMessageValue(inMsg.info).grams - prevRound.usage.tonUsed;
     expect(profit).toBeGreater(0);
     val refundBonus = validators.refundBonus;
-    profit -= calculateGasFee(BASECHAIN, RECOVER_STAKE_OK_GAS) + refundBonus +
-    min(valStateBefore.validator.refundAmount + MAX_RECOVERY_VALUE, validators.maxRefundAmount);
+    val profitDelta = refundBonus - min(refundBonus / 3, REFUND_THRESHOLD);
+    profit -= calculateGasFee(BASECHAIN, RECOVER_STAKE_OK_GAS) + profitDelta;
 
     val ownerProfit = mulDivFloor(profit, poolBefore.ownerShare, SHARE_BASE);
     val nominatorsProfit = profit - ownerProfit;
@@ -720,10 +720,6 @@ get fun `test validator should be able to recover stake and rotate round`() {
     expect(validatorAfter.validator.usageState & 2).toEqual(0);
     // Usage in odd round intact
     expect(validatorAfter.validator.usageState & 1).toEqual(1);
-    // println("Refund amount {} {} {}", valStateBefore.validator.refundAmount, validatorAfter.validator.refundAmount, validators.maxRefundAmount);
-    expect(valStateBefore.validator.refundAmount).toBeLessOrEqual(validators.maxRefundAmount);
-    expect(validatorAfter.validator.refundAmount).toBeGreaterOrEqual(0);
-    expect(validatorAfter.validator.refundAmount).toBeLess(validators.maxRefundAmount);
     // And sets are rotated!
     expect(validatorAfter.usage.curRoundUsage == null).toBeTrue();
     expect(validatorAfter.usage.prevRoundUsage).toEqual(valStateBefore.usage.curRoundUsage);
@@ -879,8 +875,6 @@ get fun `test validator should be able to fully close usage record for both roun
     val validators = poolBefore.validators.load();
     val validatorBefore = pool.getValidatorInfo(validator);
     expect(validatorBefore.validator.usageState).toEqual(RoundAllowance.InAllRounds as int);
-    // 2 stakes + 2 routations
-    expect(validatorBefore.validator.refundAmount).toEqual(ton("2"));
     val recovery = waitAndRecoverStake(pool, validator, elector.address);
     expect(recovery).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
     expect(recovery).toHaveTx<StakeReturned>({ from: pool.address, to: validator });
@@ -902,15 +896,8 @@ get fun `test validator should be able to fully close usage record for both roun
 
     val refundMsg = refundTx!.loadInMsg<StakeReturned>();
 
-    val fwdFee = testing.getConfig().getMsgForwardPrices(validator.getWorkchain()).lumpPrice;
-    // Before refundAmount was above max due to updateVset accumulation
-    val refundAmount = min(
-        beforeRecovery.validator.refundAmount + MAX_RECOVERY_VALUE,
-        validators.maxRefundAmount,
-    );
-    expect(getInternalMessageValue(refundMsg.info).grams as int).toBeApproxEqAbs(
-        refundAmount + refundBonus - fwdFee,
-        ton("0.006"),
+    expect(getInternalMessageValue(refundMsg.info).grams).toEqual(
+        refundBonus,
     );
 
     val poolAfter = pool.getPoolData();
@@ -919,10 +906,7 @@ get fun `test validator should be able to fully close usage record for both roun
     expect(validatorsAfter.stakeUsed).toEqual(0);
     val validatorAfter = pool.getValidatorInfo(validator);
     expect(validatorAfter.validator.usageState).toEqual(0);
-    expect(validatorAfter.validator.refundAmount).toEqual(
-        // Now since updateVset doesn add any value, accumulated refundAmount <= maxRefundAmount
-        max(beforeRecovery.validator.refundAmount - refundAmount, 0),
-    );
+
     expect(validatorAfter.usage.curRoundUsage).toBeNull();
     expect(validatorAfter.usage.prevRoundUsage).toBeNull();
 }
@@ -1591,7 +1575,6 @@ get fun `test new stake should bounce from the frozen proxy`() {
     val stateAfter = pool.getValidatorInfo(validator);
 
     expect(stateAfter.validator.usageState).toEqual(stateBefore.validator.usageState);
-    expect(stateAfter.validator.refundAmount).toBeLess(ton("1"));
     expect(stateAfter.usage.curRoundUsage).toEqual(null);
 
     val poolAfter = pool.getPoolData();
@@ -1855,8 +1838,6 @@ get fun `test new stake error from elector should be handled appropriately`() {
 
     val usageAfter = pool.getValidatorInfo(testValidator);
     expect(usageBefore.validator.usageState).toEqual(usageAfter.validator.usageState);
-    // Validator should be punished for the loss
-    expect(usageAfter.validator.refundAmount).toBeLess(ton("1"));
 }
 
 get fun `test new stake error from elector should be handled appropriately (FULL POOL)`() {
@@ -1913,8 +1894,7 @@ get fun `test new stake error from elector should be handled appropriately (FULL
 
     val poolAfter = pool.getPoolData();
     val validatorsAfter = poolAfter.validators.load();
-    // Can't make this comparasion, because refundAmount is changed
-    //expect(validatorsBefore).toEqual(validatorsAfter);
+    expect(validatorsBefore).toEqual(validatorsAfter);
     val roundBefore = validatorsBefore.curRound.load();
     val roundAfter = validatorsAfter.curRound.load();
     expect(roundAfter).toEqual(roundBefore);
@@ -1929,5 +1909,4 @@ get fun `test new stake error from elector should be handled appropriately (FULL
 
     val usageAfter = pool.getValidatorInfo(randomValidator);
     expect(usageBefore.validator.usageState).toEqual(usageAfter.validator.usageState);
-    expect(usageAfter.validator.refundAmount).toBeLess(ton("1"));
 }

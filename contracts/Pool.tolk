@@ -353,7 +353,6 @@ fun handleNewStakeError(sender: address, value: int) {
         // Should alway be true, but we don't want to throw here or mess the state
         if (valState != null) {
             valState.data.usageState &= ~parityToMask(round.roundIndex % 2 > 0);
-            valState.data.refundAmount = max(valState.data.refundAmount - delta, 0);
             validators.updateValidatorByAddress(stakeReturned.data.validator, valState);
             validators.stakeUsed -= stakeReturned.data.tonUsed;
             validators.activeSlots -= 1;
@@ -391,7 +390,6 @@ fun onInternalMessage(in: InMessage) {
 
         var mainValidator = Validator {
             usageState: 0,
-            refundAmount: 0,
             limit: msg.limit,
         };
 
@@ -420,7 +418,6 @@ fun onInternalMessage(in: InMessage) {
             prevRound: RoundData { roundIndex: 0 }.toCell(),
             vsetHash: getCurVset().vsetHash >> 128,
             mainValidatorData: mainValidator.toCell(),
-            maxRefundAmount: msg.maxRefund,
             refundBonus: msg.refundBonus,
         };
         assertStakingLimit(msg.minTonPerValidator, msg.maxTonPerValidator);
@@ -644,7 +641,6 @@ fun onInternalMessage(in: InMessage) {
                     oddProxy: valData.data.oddProxy,
                     evenProxy: valData.data.evenProxy,
                     limit: valLimit,
-                    refundAmount: valData.data.refundAmount + min(in.valueCoins, REFUND_THRESHOLD),
                 };
 
                 validators.updateValidatorByAddress(in.senderAddress, valData);
@@ -728,14 +724,13 @@ fun onInternalMessage(in: InMessage) {
                 storage.finalizeRound(validators.rotateRound(in.senderAddress, storage.roundIndex));
                 // It's ok for roundIndex to go negative, since -1 has LSB set to true.
                 var roundBitIdx = toBitIndex(storage.roundIndex - 1);
-                var validatorData = validators.getValidatorByAddress(
+                val validatorData = validators.getValidatorByAddress(
                     in.senderAddress,
                     ErrorsPool.ValidatorNotFound,
                 )!;
                 val usageState = validatorData.data.usageState;
                 assert(usageState > 0, ErrorsPool.UsageRecordNotFound);
                 val actionableValue = min(in.valueCoins, MAX_RECOVERY_VALUE);
-                validatorData.data.refundAmount += actionableValue;
                 var proxyAddressHash: uint256;
 
                 // Idea to use proxy address from state
@@ -765,7 +760,6 @@ fun onInternalMessage(in: InMessage) {
                 val mcTimestamp = usageRec.rotation.checkRecoverRequirements(usageRec.heldFor);
                 //}
 
-                validators.updateValidatorByAddress(in.senderAddress, validatorData);
                 storage.validators = validators.toCell();
                 storage.save();
 
@@ -865,28 +859,31 @@ fun onInternalMessage(in: InMessage) {
             var validators = lazy storage.validators.load();
 
             // Since round map has proxy address as a key, we don't need state->address calculation
-            var returned = in.valueCoins -
-            calculateGasFee(
-                BASECHAIN,
-                RECOVER_STAKE_OK_GAS,
+            var returned = max(
+                in.valueCoins -
+                calculateGasFee(
+                    BASECHAIN,
+                    RECOVER_STAKE_OK_GAS,
+                ),
+                0,
             );
             val proxyData = ProxyResponseData.fromSlice(msg.remaining);
 
             var validator = validators.getValidatorByAddress(proxyData.validator, null);
 
-            // Ugly but works
-            var refundAmount = 0;
-            if (validator != null) {
-                refundAmount = min(validator.data.refundAmount, validators.maxRefundAmount);
-                returned -= refundAmount;
-            }
-            // Clamp returned to 0
-            returned = max(returned, 0);
-
+            // Instead of refund amount we deduct 2/3 of the bonus
+            // Since bonus should include NewStake fee + RecoverStakeFee + actual bonus(external ops)
+            // Fees for first two operations are roughly equal, and bonus part is always split.
+            // For basic MTC operations bonus should not exceed 1 TON. Actual spent for mc validator ~0.6 TON per round
+            // So this expression means NewStake is roughly on the house(owner), where rest is split.
+            // In this case owner share growth rate is below the nominators by a margin of 0.25 TON per stake round.
+            // Could have done it in one mulDiv, however won't be able to limit the exposure to a single REFUND_THRESHOLD
+            val ownerPart = min(validators.refundBonus / 3, REFUND_THRESHOLD);
+            val splitBonus = validators.refundBonus - ownerPart;
             val (stakeReturned, bonusEarned, roundDone) = validators.coverUsageByAddress(
                 in.senderAddress,
                 returned,
-                validators.refundBonus,
+                splitBonus,
                 (storage.roundIndex % 2 > 0) == proxyData.parity,
             );
 
@@ -903,7 +900,8 @@ fun onInternalMessage(in: InMessage) {
                 refundBonus = validators.refundBonus;
                 // For this one to be reachable, the returned > used
                 // By the margin of bonus.
-                returned -= refundBonus;
+
+                returned -= splitBonus;
             }
 
             val profit = returned - stakeReturned.tonUsed;
@@ -916,7 +914,7 @@ fun onInternalMessage(in: InMessage) {
                 // Should we refund in case of negative returns?
                 val stakeReturnedMsg = createMessage({
                     bounce: false,
-                    value: refundAmount + refundBonus,
+                    value: refundBonus,
                     dest: stakeReturned.validator,
                     body: StakeReturned {
                         queryId: msg.queryId,
@@ -925,12 +923,11 @@ fun onInternalMessage(in: InMessage) {
                         validator: stakeReturned.validator,
                     },
                 });
-                stakeReturnedMsg.send(SEND_MODE_REGULAR | SEND_MODE_IGNORE_ERRORS);
+                stakeReturnedMsg.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_IGNORE_ERRORS);
 
                 // Who we owe are all forgiven
                 validator.data.usageState &= ~parityToMask(proxyData.parity);
                 // Preserve the unused even if validator fully exits the pool
-                validator.data.refundAmount = max(validator.data.refundAmount - refundAmount, 0);
                 validators.updateValidatorByAddress(stakeReturned.validator, validator);
 
                 if (storage.nominatorsAmount > 0) {
@@ -1233,16 +1230,11 @@ get fun get_validator_info_mtc(workchain: int, hash: int): GetValidatorInfo {
     return get_validator_info(address);
 }
 
-get fun get_limits_per_validator(): (coins, coins, int, int) {
+get fun get_limits_per_validator(): (coins, coins, int) {
     val storage = lazy Storage.load();
     val validators = lazy storage.validators.load();
 
-    return (
-        validators.minTonPerValidator,
-        validators.maxTonPerValidator,
-        validators.maxRefundAmount,
-        validators.refundBonus,
-    );
+    return (validators.minTonPerValidator, validators.maxTonPerValidator, validators.refundBonus);
 }
 
 get fun get_nominator_minimal_stake(): GetMinStake {

@@ -16,7 +16,7 @@ fun main() {
     val pool = loadPool(poolAddress);
     val owner = poolOwner();
 
-    val (curMin, curMax, curRefund, curRefundBonus) = pool.getLimitsPerValidator();
+    val (curMin, curMax, curRefundBonus) = pool.getLimitsPerValidator();
 
     val minTonPerValidator = promptCoins(
         "MIN_TON_PER_VALIDATOR",
@@ -28,11 +28,6 @@ fun main() {
         "Max TON per validator:",
         coinsToTonString(curMax),
     );
-    val maxRefund = promptCoins(
-        "MAX_REFUND",
-        "Max refund to validator:",
-        coinsToTonString(curRefund),
-    );
     val refundBonus = promptCoins(
         "REFUND_BONUS",
         "Refund bonus to validator:",
@@ -42,20 +37,18 @@ fun main() {
     val value = promptCoins("MSG_VALUE", "Message value (TON):", "1");
 
     println(
-        "Updating global validator limits: min={:gram} max={:gram} refund={:gram} bonus={:gram}",
+        "Updating global validator limits: min={:gram} max={:gram} bonus={:gram}",
         minTonPerValidator,
         maxTonPerValidator,
-        maxRefund,
         refundBonus,
     );
 
     confirmSend(
         format(
-            "Update global validator limits\n  pool:               {}\n  min TON/validator:  {:gram}\n  max TON/validator:  {:gram}\n  max refund:         {:gram}\n  refund bonus:       {:gram}",
+            "Update global validator limits\n  pool:               {}\n  min TON/validator:  {:gram}\n  max TON/validator:  {:gram}\n  refund bonus:       {:gram}",
             pool.address,
             minTonPerValidator,
             maxTonPerValidator,
-            maxRefund,
             refundBonus,
         ),
     );
@@ -66,7 +59,6 @@ fun main() {
         GlobalValidatorsLimit {
             minTonPerValidator,
             maxTonPerValidator,
-            maxRefund: maxRefund as uint33,
             refundBonus: refundBonus as uint33,
         },
         { value },
@@ -76,9 +68,8 @@ fun main() {
         Assert.fail("UpdateLimits (GlobalValidatorsLimit) message was not accepted by network");
     }
 
-    val (newMin, newMax, newRefund, newRefundBonus) = pool.getLimitsPerValidator();
+    val (newMin, newMax, newRefundBonus) = pool.getLimitsPerValidator();
     val ok = newMin == minTonPerValidator && newMax == maxTonPerValidator &&
-    newRefund == maxRefund &&
     newRefundBonus == refundBonus;
 
     if (ok) {

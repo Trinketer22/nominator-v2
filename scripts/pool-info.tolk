@@ -64,7 +64,7 @@ fun printProjectedRotationInfo(label: string, usage: ValidatorUsageStats) {
 
 fun printPoolInfo(pool: Pool) {
     val data = pool.getPoolData();
-    val (minTon, maxTon, maxRefund, refundBonus) = pool.getLimitsPerValidator();
+    val (minTon, maxTon, refundBonus) = pool.getLimitsPerValidator();
     val balance = testing.getAccountBalance(pool.address);
     val minStake = pool.getNominatorMinimalStake();
 
@@ -84,7 +84,6 @@ fun printPoolInfo(pool: Pool) {
     println("--- Validator limits ---");
     println("Min TON/validator: {:gram}", minTon);
     println("Max TON/validator: {:gram}", maxTon);
-    println("Max refund:        {:gram}", maxRefund);
     println("Refund bonus:      {:gram}", refundBonus);
     println("--- Nominator settings ---");
     println("Min stake:         {:gram}", minStake.minStake);
@@ -107,10 +106,9 @@ fun printPoolInfo(pool: Pool) {
             val valAddr = valIter.getKey();
             val valEntry = valIter.loadValue();
             println(
-                "  {} (usageState={}, refund={:gram})",
+                "  {} (usageState={})",
                 valAddr,
                 valEntry.usageState,
-                valEntry.refundAmount,
             );
             valIter = validators.validators.iterateNext(valIter);
         }
@@ -180,7 +178,6 @@ fun printValidatorInfo(pool: Pool, validator: address, poolData: Storage) {
     if (vd.oddProxy != null) {
         println("Odd proxy:     {}", vd.oddProxy!);
     }
-    println("Refund amount: {:gram}", vd.refundAmount);
     if (vd.limit != null) {
         match (vd.limit) {
             ValidatorLimitTon => {

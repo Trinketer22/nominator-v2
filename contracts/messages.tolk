@@ -8,7 +8,6 @@ struct (0xaa863686) InitPoolMessage {
     ownerShare: uint25
     maxTonPerValidator: coins
     minTonPerValidator: coins
-    maxRefund: uint33
     refundBonus: uint33
     nominatorsSettings: Cell<NominatorsSettings>
 }

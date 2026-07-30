@@ -327,7 +327,6 @@ fun Pool.sendInitPoolMessage(
     ownerShare: uint25,
     maxTonPerValidator: coins,
     minTonPerValidator: coins,
-    maxRefund: uint33,
     refundBonus: uint33,
     nominatorsSettings: NominatorsSettings,
     config: SendParams = {},
@@ -344,7 +343,6 @@ fun Pool.sendInitPoolMessage(
             ownerShare,
             maxTonPerValidator,
             minTonPerValidator,
-            maxRefund,
             refundBonus,
             nominatorsSettings: nominatorsSettings.toCell(),
         },
@@ -395,7 +393,7 @@ fun Pool.getValidatorInfoMtc(self, workchain: int, hash: int): GetValidatorInfo 
     return net.runGetMethod(self.address, "get_validator_info_mtc", [workchain, hash]);
 }
 
-fun Pool.getLimitsPerValidator(self): (coins, coins, int, int) {
+fun Pool.getLimitsPerValidator(self): (coins, coins, int) {
     return net.runGetMethod(self.address, "get_limits_per_validator");
 }
 

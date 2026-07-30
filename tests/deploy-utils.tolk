@@ -19,8 +19,7 @@ struct ValidatorInitSettings {
     maxTonPerValidator: coins
     minTonPerValidator: coins
     mainValidatorAddress: address
-    maxRefund: uint33
-    refundBonus: uint33 = ton("1") as int
+    refundBonus: uint33 = ton("3") as int
 }
 
 fun setupDeployedPool(customSettings: CustomDeployParameters? = null): (
@@ -54,7 +53,7 @@ fun defaultDeployParams(): (int, ValidatorInitSettings, NominatorsSettings) {
         maxTonPerValidator: ton("1000000"),
         minTonPerValidator: DEFAULT_MIN_STAKE,
         mainValidatorAddress: validator,
-        maxRefund: ton("3") as int,
+        refundBonus: ton("3") as int,
     };
 
     val nmSettings = NominatorsSettings {
@@ -87,7 +86,6 @@ fun defaultDeployBody(params: CustomDeployParameters? = null): InitPoolMessage {
         minTonPerValidator: validatorSettings.minTonPerValidator,
         mainValidator: validatorSettings.mainValidatorAddress,
         limit: null,
-        maxRefund: validatorSettings.maxRefund,
         refundBonus: validatorSettings.refundBonus,
         nominatorsSettings: nmSettings.toCell(),
     };
