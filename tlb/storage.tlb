@@ -81,7 +81,6 @@ validator$_
   even_proxy:(Maybe uint256)
   odd_proxy:(Maybe uint256)
   limit:(Maybe ValidatorLimit)
-  refund_amount:Grams
   round_parity:RoundAllowance
 = Validator;
 
@@ -94,7 +93,6 @@ validators_data$_
   stake_used:Grams
   min_ton_per_validator:Grams
   max_ton_per_validator:Grams
-  max_refund_amount:uint33
   refund_bonus:uint33
   validators:(HashmapE 267 Validator)
   cur_round:^RoundData

@@ -1,6 +1,6 @@
 import "types"
 
-struct (0xaa863686) InitPoolMessage {
+struct (0xcbfcc337) InitPoolMessage {
     queryId: uint64
     mainValidator: address
     roundAllowance: RoundAllowance = RoundAllowance.InAllRounds
