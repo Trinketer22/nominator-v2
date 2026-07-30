@@ -96,8 +96,7 @@ If processing pending deposits/withdrawals exhausts available gas or balance in 
 | `ownerShare` | `uint25` | The owner's cut of validator profits, expressed as parts of `SHARE_BASE` (2^24). For example, `ownerShare = SHARE_BASE` means 100% of profit goes to the owner; `0` means all profit goes to nominators. |
 | `maxTonPerValidator` | `coins` | Global maximum stake any single validator may use from the pool. |
 | `minTonPerValidator` | `coins` | Global minimum stake a validator must request for a `new_stake`. |
-| `maxRefund` | `uint33` | Maximum TON refunded to a validator on top of recovered stake if the validator made a profit (capped at ~8.6 TON). |
-| `refundBonus` | `uint33` | Extra bonus paid on top of `maxRefund` for recovering a **profitable** round (capped at ~8.6 TON). See [Validator Refunds](#validator-refunds-automatic). |
+| `refundBonus` | `uint33` | Flat bonus compensating the validator for the staking "happy path" (NewStake fee + RecoverStake fee + external operational costs), capped at ~8.6 TON. See [Validator Refunds](#validator-refunds-automatic). |
 | `nominatorsSettings` | `Cell<NominatorsSettings>` | Encapsulated nominator configuration (see below). |
 
 ### Nominator Settings (`NominatorsSettings`)
@@ -115,7 +114,7 @@ After initialization, the owner can adjust limits via the `UpdateLimits` or `Upd
 
 | Category | Fields | Description |
 |----------|--------|-------------|
-| **GlobalValidatorsLimit** | `minTonPerValidator`, `maxTonPerValidator`, `maxRefund`, `refundBonus` | Adjusts global staking bounds, refund cap, and per-round bonus. Validated against **network config 17** limits (`minTonPerValidator ≥ minStake`, `maxTonPerValidator ≤ maxStake`). |
+| **GlobalValidatorsLimit** | `minTonPerValidator`, `maxTonPerValidator`, `refundBonus` | Adjusts global staking bounds and per-round bonus. Validated against **network config 17** limits (`minTonPerValidator ≥ minStake`, `maxTonPerValidator ≤ maxStake`). |
 | **ValidatorSpecific** | `validator`, `limit` | Sets an individual validator's `ValidatorLimit` (TON cap or share cap). |
 | **GlobalNominatorsLimit** | `minStake`, `maxNm` | Updates minimum nominator stake and the total nominator count ceiling. |
 | **NominatorsWhitelist** | `whitelist` | Replaces the current nominator whitelist map. A non-empty whitelist restricts deposits to the listed addresses only. An empty map clears the restriction and allows all addresses. |
@@ -158,7 +157,7 @@ BATCH=1 \
   LIMIT_KIND=share MAX_SHARE=4194304 \
   INIT_VALUE=100000000000000 OWNER_SHARE=8388608 \
   MAX_TON_PER_VALIDATOR=10000000000000000 MIN_TON_PER_VALIDATOR=300000000000000 \
-  MAX_REFUND=5000000000 REFUND_BONUS=1000000000 \
+  REFUND_BONUS=3000000000 \
   MAX_NOMINATORS=1023 MIN_STAKE=1000000000000 MIN_WITHDRAWABLE_REWARDS=1000000000 \
   acton script scripts/init-pool.tolk --net mainnet
 
@@ -218,7 +217,7 @@ BATCH=1 \
   LIMIT_KIND=share MAX_SHARE=2796203 \
   INIT_VALUE=100000000000000 OWNER_SHARE=8388608 \
   MAX_TON_PER_VALIDATOR=10000000000000000 MIN_TON_PER_VALIDATOR=300000000000000 \
-  MAX_REFUND=5000000000 REFUND_BONUS=1000000000 \
+  REFUND_BONUS=3000000000 \
   MAX_NOMINATORS=1023 MIN_STAKE=1000000000000 MIN_WITHDRAWABLE_REWARDS=1000000000 \
   acton script scripts/init-pool.tolk --net mainnet
 
@@ -283,26 +282,32 @@ The punishment amount is derived from TON config param 40 (misbehavior fines), s
 
 ### Validator Refunds (Automatic)
 
-Validators **do not need to maintain a separate wallet balance** to track gas/TON tied up in the pool. The contract tracks a `refundAmount` per validator automatically:
+Validators **do not need to maintain a separate wallet balance** to track gas/TON tied up in the pool. The contract compensates the validator for the staking "happy path" costs via a single flat **`refundBonus`** parameter:
 
-- Incoming message value from `new_stake`/`recover_stake` is recorded.
-- On successful `recover_stake_ok`, the pool calculates net profit (`returned - used`) and reimburses the validator via a `StakeReturned` message, capped by `maxRefundAmount`.
-- A configurable **`refundBonus`** (set in `PoolInitMessage` / `GlobalValidatorsLimit`) is paid on top of the refund **only if the round was profitable** (recovered amount > staked `tonUsed` + bonus). This gates the bonus behind real validation profit to discourage bonus inflation from rogue validators.
-- `refundAmount` is preserved across a full validator exit.
+- On successful `recover_stake_ok`, the pool calculates net profit (recovered amount minus staked amount).
+- If the round was profitable, the **full `refundBonus`** is sent to the validator via a `StakeReturned` message.
+- The bonus cost is split into two parts:
+  - **Owner-only part** (one third of the bonus, capped at 1 TON): representing the NewStake fee the owner covers alone. This is **not** deducted from the recovered amount, so it does not reduce nominator profit — it comes out of the owner's equity.
+  - **Split part** (two thirds of the bonus): deducted from the recovered amount before computing profit, so it is **split between the owner and nominators** according to `ownerShare`.
+- If the round was unprofitable (slashed or no profit), no bonus is paid. The validator's overspend on unsuccessful operations must be resolved directly with the pool owner if necessary.
+- `refundBonus` is configured at initialization and can be updated later via `UpdateLimits`.
 
-#### `maxRefundAmount` and `refundBonus` explained
+#### `refundBonus` explained
 
-When a validator recovers a stake, the elector returns the staked TON plus any validation profit. The pool reimburses the validator for the costs it incurred, split into two components:
+When a validator recovers a stake, the elector returns the staked TON plus any validation profit. The `refundBonus` is a flat amount that bundles three cost components:
 
-- **`maxRefundAmount`** (capped at ~8.6 TON via `uint33`): compensates the validator for **pool-side costs** — the value the validator attaches to its `new_stake` and `recover_stake` messages, which covers proxy forwarding gas and elector transaction fees. The pool records up to 1 TON (`REFUND_THRESHOLD`) of the attached value per message into `validator.refundAmount`. The actual refund paid on `recover_stake_ok` is `min(validator.refundAmount, maxRefundAmount)`. This ensures the validator is made whole for the costs incurred operating the pool's staking workflow.
+1. **NewStake fee** (~1 TON) — covered by the owner-only part. The owner bears this alone because most of the NewStake value is not actually spent — the elector refunds it back to the proxy with `NewStakeOk`, so it returns to the pool rather than being consumed. Only forwarding fees and elector gas are truly lost, so assigning this part solely to the owner avoids diluting nominator profit for a cost that largely returns.
+2. **RecoverStake fee** (~1 TON) — covered by the split part.
+3. **External operational bonus** — the remainder of the split part, compensating for the validator's own wallet gas, forwarding fees, and transaction costs outside the pool.
 
-- **`refundBonus`** (capped at ~8.6 TON via `uint33`): compensates the validator for **external costs** — the validator's own wallet gas, forwarding fees, and transaction costs incurred outside the pool. It is paid **only if the round was profitable** (`returned > tonUsed + refundBonus`), so it is funded out of real validation profit, never out of nominator principal. If the round was unprofitable (slashed or no profit), `refundBonus` is not paid.
+The full bonus is paid **only if the round was profitable**, so it is funded out of real validation profit, never out of nominator principal. This gates the bonus behind real validation profit to discourage bonus inflation from rogue validators.
 
-Both parameters are set at initialization (`InitPoolMessage`) and can be updated later via `UpdateLimits` (`GlobalValidatorsLimit`).
+The **trust boundary** between the owner and nominators is `refundBonus`. It is paid out of validation profit — the owner sets it, and nominators rely on the owner choosing a reasonable value. The bonus is capped at ~8.6 TON and is only paid when the round's profit exceeds the split part. So even a rogue owner can only direct up to 8.6 TON of a round's profit to the validator, and only in rounds where profit exceeds that amount.
 
-The **trust boundary** between the owner and nominators is `refundBonus`. `maxRefundAmount` is gas-bound: the refund is at most what the validator sent minus forwarding fees, so there is no way for a validator to profit from an excessive `maxRefundAmount` — it only gets back what it spent. `refundBonus`, however, is paid out of validation profit — the owner sets it, and nominators rely on the owner choosing a reasonable value. The bonus is capped at ~8.6 TON (via `uint33`) and is only paid when the round's profit exceeds the bonus itself (`returned > tonUsed + refundBonus`). So even a rogue owner can only direct up to 8.6 TON of a round's profit to the validator, and only in rounds where profit exceeds that amount.
+**Typical values on masterchain :** the default `refundBonus` is 3 TON. The validator receives the full 3 TON; of that, 2 TON is deducted from the recovered amount (reducing profit shared by owner and nominators) and 1 TON is borne by the owner alone. The actual external validator cost per round is ~0.6 TON, so a validator's wallet balance grows over time. This is done for simplicity — the owner does not need to measure exact gas costs per round. An owner who wants tighter accounting can measure actual per-round costs and adjust `refundBonus` downward.
 
-**Typical values on masterchain (MTC):** the default `maxRefundAmount = 5 TON` and `refundBonus = 1 TON` are deliberately generous. The pool records up to 1 TON per message into `refundAmount` — so a typical round accumulates ~2 TON in `refundAmount` (1 from `new_stake` + 1 from `recover_stake`), all refunded if under `maxRefundAmount`. On top of that, 1 TON `refundBonus` is paid if the round was profitable. So a validator typically receives 3 TON minus forwarding fees per round (2 TON refund + 1 TON bonus), not 5+1=6 — `maxRefundAmount` only caps the refund of what the validator deposited, it does not add to it. The actual external validator cost per round is ~0.6 TON. With the defaults, a validator's wallet balance grows over time. This is done for simplicity — the owner does not need to measure exact gas costs per round. An owner who wants tighter accounting can measure actual per-round costs and adjust `refundBonus` downward.
+**Owner gas costs:**
+The owner share growth is lower that the nominators by a margin of (~0.25 TON) per stake round(single stake round trip). Mainly due to gas and forwarding cost.
 
 ---
 
@@ -543,7 +548,7 @@ The pool exposes several getters for off-chain queries:
 | `get_validator_info(address: address)` | `GetValidatorInfo` | Validator data, usage records for both rounds, and a **projected `roundIndex` and `rotated` flag** after running the same vset rotation check as `UpdateVset`. It also returns the **current `stakeable` amount** — the TON the validator is allowed to use in the current round — computed by applying the exact same validation checks as `NewStake` (round state, parity, usage, limits, balance, owner undercapitalization, etc). The goal is to let off-chain tools know whether a validator is actually eligible to stake and how much, without attempting a real transaction. Because this getter evaluates `rotateRound`, calling it may advance the round state in the same way a real `UpdateVset` message would. |
 | `get_validator_info_mtc(workchain: int, hash: int)` | `GetValidatorInfo` | Same as `get_validator_info`, but accepts workchain + hash for masterchain tooling compatibility. |
 | `get_proxy_address(validator: address)` | `GetProxyAddressResult` | Even/odd proxy addresses for a given validator. |
-| `get_limits_per_validator()` | `(coins, coins, int, int)` | `(minTonPerValidator, maxTonPerValidator, maxRefundAmount, refundBonus)`. |
+| `get_limits_per_validator()` | `(coins, coins, int)` | `(minTonPerValidator, maxTonPerValidator, refundBonus)`. |
 | `get_nominator_minimal_stake()` | `GetMinStake` | `(minStake, minExpectedValue)` where `minExpectedValue = minStake + DEPOSIT_GAS`. |
 | `get_max_punishment(stake: int)` | `int` | Max punishment fine for a given stake amount, derived from config param 40. |
 | `get_pool_invariants()` | `PoolInvariants` | Audit/diagnostic getter that recomputes the cached nominator aggregates (share supply, pending deposits/withdrawals, nominator count) from the primary nominator map and reports whether they match the stored aggregates (`supplyMatch`, `pendingWithdrawalsMatch`, `pendingDepositsMatch`, `nmCountMatch`, `allMatch`). No assertion is performed — it reports only. Also exposes `nominatorsAmount` and a `projectedBalance` (`balance + stakeUsed - pendingDeposits - POOL_MIN_STORAGE`) for off-chain solvency monitoring, plus the recomputed values for debugging. |
@@ -668,7 +673,7 @@ acton script scripts/update-validator-limit.tolk --net mainnet
 
 #### Update global validator limits
 
-Updates the global min/max TON per validator, max refund, and refund bonus. Sent by the owner.
+Updates the global min/max TON per validator and refund bonus. Sent by the owner.
 
 ```bash
 acton script scripts/update-validator-limits.tolk --net mainnet
