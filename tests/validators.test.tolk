@@ -1343,7 +1343,7 @@ get fun `test anybody should be able to recover on behalf of the validator at un
     val (elector, stakes, limits) = setupElector();
     val (pool, _owner, notOwner, validator, _nominators) = setupPoolWithNominators(20);
 
-    val testValue = random.range(10) * DEFAULT_MSG_VALUE;
+    val testValue = ton("0.5") + random.range(5) * ton("0.1");
 
     runRound(
         pool,
@@ -1364,7 +1364,7 @@ get fun `test anybody should be able to recover on behalf of the validator at un
     );
     expect(
         res,
-    ).toHaveFailedTx<RecoverStakeUnrestricted>({ to: pool.address, from: notOwner.address, exitCode: ErrorsPool.RoundTooEarly });
+    ).toHaveRefund<RecoverStakeUnrestricted>({ from: pool.address, to: notOwner.address, error: ErrorsPool.RoundTooEarly });
 
     runRound(
         pool,
@@ -1384,7 +1384,7 @@ get fun `test anybody should be able to recover on behalf of the validator at un
     );
     expect(
         res,
-    ).toHaveFailedTx<RecoverStakeUnrestricted>({ to: pool.address, from: notOwner.address, exitCode: ErrorsPool.RecoveryTimeTooEarly });
+    ).toHaveRefund<RecoverStakeUnrestricted>({ from: pool.address, to: notOwner.address, error: ErrorsPool.RecoveryTimeTooEarly });
 
     waitTillRecovery(pool, validator, elector.address);
     testing.runTickTock(elector.address, true);
@@ -1401,14 +1401,19 @@ get fun `test anybody should be able to recover on behalf of the validator at un
     val validatorInfo = pool.getValidatorInfo(validator);
     val expectedProxy = validatorInfo.validator.evenProxy!;
 
-    expect(res).toHaveSuccessfulTx({
+    val refundTx = res.findTransaction({
         from: pool.address,
         to: address.fromWorkchainAndHash(
             MASTERCHAIN,
             expectedProxy,
         ),
-        value: testValue,
+        aborted: false,
     });
+
+    expect(refundTx).toBeNotNull();
+    expect(
+        getInternalMessageValue(refundTx!.loadInMsg<RecoverStakeCompat>().info).grams as int,
+    ).toBeApproxEqAbs(testValue, ton("0.01"));
     expect(res).toHaveSuccessfulTx<RecoverStakeOk>({
         from: address.fromWorkchainAndHash(
             MASTERCHAIN,
@@ -1416,6 +1421,41 @@ get fun `test anybody should be able to recover on behalf of the validator at un
         ),
         to: pool.address,
     });
+}
+
+get fun `test recoverStake should refund above 1 TON`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, notOwner, validator, _nominators) = setupPoolWithNominators(20);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+
+    waitTillRecovery(pool, validator, elector.address);
+
+    val res = pool.sendRecoverStakeCompat(validator, DEFAULT_QUERY_ID, { value: ton("1.2") });
+    expect(res).toHaveRefund<RecoverStakeCompat>({ from: pool.address, to: validator, error: 0 });
+    val refundTx = res.findTransaction<RefundMessage>({ to: validator, from: pool.address });
+    expect(refundTx).toBeNotNull()!;
+
+    expect(
+        getInternalMessageValue(refundTx!.loadInMsg<RefundMessage>().info).grams,
+    ).toBeLessOrEqual(ton("0.2"));
 }
 
 get fun `test should unfreeze frozen proxy by recoverStake`() {

@@ -303,6 +303,88 @@ fun Storage.getStakableBalance(self, inValue: coins, stakeUsed: int): (coins, co
     return (availableBalance, totalBalance, estPendingWithdrawals);
 }
 
+fun Storage.sendStakeRecovery(
+    mutate self,
+    inValue: coins,
+    sender: address,
+    validator: address,
+    op: uint32,
+    queryId: uint64,
+) {
+    try {
+        var validators = lazy self.validators.load();
+
+        self.finalizeRound(validators.rotateRound(validator, self.roundIndex));
+        // It's ok for roundIndex to go negative, since -1 has LSB set to true.
+        var roundBitIdx = toBitIndex(self.roundIndex - 1);
+        val validatorData = validators.getValidatorByAddress(
+            validator,
+            ErrorsPool.ValidatorNotFound,
+        )!;
+        val usageState = validatorData.data.usageState;
+        assert(usageState > 0, ErrorsPool.UsageRecordNotFound);
+        val actionableValue = min(inValue, MAX_RECOVERY_VALUE);
+        var proxyAddressHash: uint256;
+
+        // Idea to use proxy address from state
+        // is to attach state init and potentially
+        // unfreeze frozen proxy, if such thing ever happens
+        var proxyState: AutoDeployAddress;
+        var affectedRound: Cell<RoundData>;
+        if ((roundBitIdx & usageState) > 0) {
+            affectedRound = validators.prevRound;
+        } else {
+            affectedRound = validators.curRound;
+            roundBitIdx += 1;
+        }
+
+        proxyState = getProxyState(
+            validator,
+            roundBitIdx % 2 > 0,
+        );
+
+        proxyAddressHash = proxyState.calculateAddress().getHash();
+        val round = affectedRound.load();
+        val usageRec = round.users.mustGet(proxyAddressHash, ErrorsPool.UsageRecordNotFound);
+        val mcTimestamp = usageRec.rotation.checkRecoverRequirements(usageRec.heldFor);
+
+        self.validators = validators.toCell();
+        self.save();
+
+        val recoveryStake = createMessage({
+            dest: proxyState,
+            bounce: false,
+            value: actionableValue - calculateGasFee(BASECHAIN, getGasConsumedAtTheMoment() * 2),
+            body: RecoverStakeCompat { queryId: mcTimestamp },
+        });
+        recoveryStake.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
+        reserveGramsOnBalance(
+            0,
+            RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_AT_MOST,
+        );
+
+        refundError(
+            sender,
+            {
+                op,
+                queryId,
+                errorCode: 0,
+            },
+            SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS,
+        );
+    } catch (e) {
+        refundError(
+            sender,
+            {
+                op,
+                queryId,
+                errorCode: e,
+            },
+            SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE | SEND_MODE_IGNORE_ERRORS,
+        );
+    }
+}
+
 get fun get_max_punishment(stake: int): int {
     val storage = Storage.load();
     val validators = lazy storage.validators.load();
@@ -718,142 +800,27 @@ fun onInternalMessage(in: InMessage) {
             handleNewStakeError(in.senderAddress, in.valueCoins);
         }
         RecoverStakeCompat => {
-            try {
-                var validators = lazy storage.validators.load();
-
-                storage.finalizeRound(validators.rotateRound(in.senderAddress, storage.roundIndex));
-                // It's ok for roundIndex to go negative, since -1 has LSB set to true.
-                var roundBitIdx = toBitIndex(storage.roundIndex - 1);
-                val validatorData = validators.getValidatorByAddress(
-                    in.senderAddress,
-                    ErrorsPool.ValidatorNotFound,
-                )!;
-                val usageState = validatorData.data.usageState;
-                assert(usageState > 0, ErrorsPool.UsageRecordNotFound);
-                val actionableValue = min(in.valueCoins, MAX_RECOVERY_VALUE);
-                var proxyAddressHash: uint256;
-
-                // Idea to use proxy address from state
-                // is to attach state init and potentially
-                // unfreeze frozen proxy, if such thing ever happens
-                var proxyState: AutoDeployAddress;
-                var affectedRound: Cell<RoundData>;
-                if ((roundBitIdx & usageState) > 0) {
-                    affectedRound = validators.prevRound;
-                } else {
-                    affectedRound = validators.curRound;
-                    roundBitIdx += 1;
-                }
-
-                proxyState = getProxyState(
-                    in.senderAddress,
-                    roundBitIdx % 2 > 0,
-                );
-
-                //if(storage.maxNominators > 0) {
-                // Single nominator mode TODO
-                proxyAddressHash = proxyState.calculateAddress().getHash();
-                val round = affectedRound.load();
-                val usageRec = round
-                    .users
-                    .mustGet(proxyAddressHash, ErrorsPool.UsageRecordNotFound);
-                val mcTimestamp = usageRec.rotation.checkRecoverRequirements(usageRec.heldFor);
-                //}
-
-                storage.validators = validators.toCell();
-                storage.save();
-
-                val recoveryStake = createMessage({
-                    dest: proxyState,
-                    bounce: false,
-                    value: actionableValue -
-                    calculateGasFee(BASECHAIN, getGasConsumedAtTheMoment() * 2),
-                    body: RecoverStakeCompat { queryId: mcTimestamp },
-                });
-                recoveryStake.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
-                reserveGramsOnBalance(
-                    MAX_RECOVERY_VALUE,
-                    RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_AT_MOST,
-                );
-
-                refundError(
-                    in.senderAddress,
-                    {
-                        op: opcode<RecoverStakeCompat>(),
-                        queryId: msg.queryId,
-                        errorCode: 0,
-                    },
-                    SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS,
-                );
-            } catch (e) {
-                refundError(
-                    in.senderAddress,
-                    {
-                        op: opcode<RecoverStakeCompat>(),
-                        queryId: msg.queryId,
-                        errorCode: e,
-                    },
-                    SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE | SEND_MODE_IGNORE_ERRORS,
-                );
-            }
+            storage.sendStakeRecovery(
+                in.valueCoins,
+                in.senderAddress,
+                in.senderAddress,
+                opcode<RecoverStakeCompat>(),
+                msg.queryId,
+            );
         }
         RecoverStakeUnrestricted => {
-            var validators = lazy storage.validators.load();
-            val valData = validators.getValidatorByAddress(
+            storage.sendStakeRecovery(
+                msg.amount,
+                in.senderAddress,
                 msg.validator,
-                ErrorsPool.ValidatorNotFound,
-            )!;
-
-            storage.finalizeRound(validators.rotateRound(in.senderAddress, storage.roundIndex));
-
-            // If there is no usage record, there is no point of sending recovery
-            assert(valData.data.usageState > 0, ErrorsPool.UsageRecordNotFound);
-            var roundBitIdx = toBitIndex(storage.roundIndex - 1);
-            if ((valData.data.usageState & roundBitIdx) == 0) {
-                roundBitIdx += 1;
-            }
-
-            val proxyState = getProxyState(msg.validator, roundBitIdx % 2 > 0);
-            val usageRec = validators.getUsageRecord(
-                proxyState.calculateAddress().getHash(),
-                valData.data.usageState,
-                ErrorsPool.UsageRecordNotFound,
-            )!;
-
-            // For unrestricted recovery always check the timing
-            val mcTimestamp = usageRec
-                .data
-                .rotation
-                .checkRecoverRequirements(usageRec.data.heldFor);
+                opcode<RecoverStakeUnrestricted>(),
+                msg.queryId,
+            );
             val minFee = calculateGasFee(BASECHAIN, getGasConsumedAtTheMoment() * 2) +
             in.originalForwardFee +
             msg.amount;
-
+            // It is not wrapped in try/catch, but i think it's okay
             assert(in.valueCoins >= minFee, ErrorsPool.NotEnoughGas);
-
-            storage.validators = validators.toCell();
-            storage.save();
-
-            reserveGramsOnBalance(0, RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE);
-            val recoverStakeCompat = createMessage({
-                dest: proxyState,
-                // It will cary stateinit in case of unfreeze
-                // So should not bounce of frozen acct
-                // Also it is going to pay any occured storage for the proxy
-                bounce: false,
-                value: msg.amount,
-                body: RecoverStakeCompat { queryId: mcTimestamp },
-            });
-            recoverStakeCompat.send(SEND_MODE_PAY_FEES_SEPARATELY);
-            refundError(
-                in.senderAddress,
-                {
-                    op: opcode<RecoverStakeUnrestricted>(),
-                    queryId: msg.queryId,
-                    errorCode: 0,
-                },
-                SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS,
-            );
         }
         RecoverStakeOk => {
             var validators = lazy storage.validators.load();
