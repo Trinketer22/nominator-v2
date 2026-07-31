@@ -1458,6 +1458,54 @@ get fun `test recoverStake should refund above 1 TON`() {
     ).toBeLessOrEqual(ton("0.2"));
 }
 
+get fun `test RecoverStakeUnrestricted shoud not be able to inflate RecoverStakeOk value`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, notOwner, validator, _nominators) = setupPoolWithNominators(20);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+
+    waitTillRecovery(pool, validator, elector.address);
+
+    val valData = pool.getValidatorInfo(validator);
+    val expProxyHash = valData.validator.evenProxy!;
+    val proxyAddr = address.fromWorkchainAndHash(MASTERCHAIN, expProxyHash);
+    val expectedStake = elector.computeReturnedStake(expProxyHash);
+    val res = pool.sendRecoverStakeUnrestricted(
+        notOwner.address,
+        DEFAULT_QUERY_ID,
+        validator,
+        ton("100"),
+        { value: ton("200") },
+    );
+    val recoverOut = res.findTransaction<RecoverStakeCompat>({ from: pool.address, to: proxyAddr });
+    expect(recoverOut).toBeNotNull();
+    expect(
+        getInternalMessageValue(recoverOut!.loadInMsg<RecoverStakeCompat>().info).grams,
+    ).toBeLessOrEqual(ton("1"));
+    val recoverTx = res.findTransaction<RecoverStakeOk>({ to: pool.address, from: proxyAddr });
+    expect(recoverTx).toBeNotNull();
+    expect(
+        getInternalMessageValue(recoverTx!.loadInMsg<RecoverStakeOk>().info).grams,
+    ).toBeLessOrEqual(expectedStake + ton("1"));
+}
+
 get fun `test should unfreeze frozen proxy by recoverStake`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, _owner, notOwner, validator, _nominators) = setupPoolWithNominators(20);
