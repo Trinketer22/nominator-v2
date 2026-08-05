@@ -110,12 +110,16 @@ init_pool_message#cbfcc337
 
 init_pool_success#d9478669 query_id:uint64 = InitPoolSuccess;
 
-text_comment#00000000 comment:Cell = TextComment;
+// Text commands are a 32-bit zero comment prefix followed by one ASCII byte.
+text_comment#00000000 {X:Type} comment:X = TextComment X;
+deposit_command#64 = DepositCommand;
+withdrawal_command#77 = WithdrawalCommand;
+withdrawal_reward_command#72 = WithdrawalRewardCommand;
 
-deposit_message#00000064 = DepositMessage;
+deposit_message$_ body:(TextComment DepositCommand) = DepositMessage;
 deposit_success#1d462054 query_id:uint64 = DepositSuccess;
-withdrawal_message#00000077 = WithdrawalMessage;
-withdrawal_reward#00000072 = WithdrawalReward;
+withdrawal_message$_ body:(TextComment WithdrawalCommand) = WithdrawalMessage;
+withdrawal_reward$_ body:(TextComment WithdrawalRewardCommand) = WithdrawalReward;
 
 withdraw_success#ac9a3b31
   query_id:uint64
