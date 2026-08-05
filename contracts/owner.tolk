@@ -156,7 +156,6 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
         }
         UpdateLimits => {
             try {
-                var storage = lazy Storage.load();
                 var validators = lazy storage.validators.load();
                 assert(sender == storage.owner, ErrorsPool.NotOwner);
 
