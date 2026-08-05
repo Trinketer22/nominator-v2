@@ -5,7 +5,7 @@ fun mulDivQuiet(multA: int, multB: int, divisor: int): int {
     if (multB == divisor) {
         return multA;
     }
-    return multB == divisor ? multA : mulDivFloor(multA, multB, divisor);
+    return mulDivFloor(multA, multB, divisor);
 }
 
 @inline
