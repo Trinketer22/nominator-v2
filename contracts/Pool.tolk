@@ -20,7 +20,7 @@ contract NominatorPool {
     incomingMessages: AllowedMessage
 }
 
-type BounceableMessages = NewStake
+type BounceableMessages = NewStakeElector
 
 type AllowedComments =
     | DepositMessage
@@ -1050,7 +1050,7 @@ fun onBouncedMessage(in: InMessageBounced) {
     bouncedBody.skipBouncedPrefix();
     val msg = BounceableMessages.fromSlice(bouncedBody);
     match (msg) {
-        NewStake => {
+        NewStakeElector => {
             // Equivalent of ProxyNewStakeError
             handleNewStakeError(in.senderAddress, in.valueCoins);
         }

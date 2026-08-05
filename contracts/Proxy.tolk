@@ -19,10 +19,10 @@ struct ProxyResponse {
 
 type PoolMessages =
     | InitProxy
-    | NewStake
+    | NewStakeElector
     | RecoverStakeCompat
 
-type PoolMessagesBounceable = NewStake | RecoverStakeCompat
+type PoolMessagesBounceable = NewStakeElector | RecoverStakeCompat
 
 type ElectorMessages =
     | NewStakeOk
@@ -44,7 +44,7 @@ fun onBouncedMessage(in: InMessageBounced) {
     val msg = lazy PoolMessagesBounceable.fromSlice(in.bouncedBody.skipBouncedPrefix());
     val storage = ProxyStorage.fromCell(contract.getData());
     val resp = match (msg) {
-        NewStake => createMessage({
+        NewStakeElector => createMessage({
             dest: storage.pool,
             bounce: false,
             value: 0,
@@ -103,7 +103,7 @@ fun onInternalMessage(in: InMessage) {
                 // Since refund is an optional action, IGNORE_ERRORS makes perfect sense.
                 proxyInit.send(SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS);
             }
-            NewStake => {
+            NewStakeElector => {
                 // Incoming value here is guaranteed to exceed compute budget by far.
                 // So, by paying fees separately, we escentially borrow compute cost from
                 // storage reserve, which is intended
