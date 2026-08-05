@@ -1,6 +1,6 @@
 # TON Nominator Pool V2 Smart Contract
 
-A Tolk-based smart contract protocol for The Open Network (TON) that enables delegated staking through a **nominator pool**. The contract allows multiple validators to use pool funds for election participation while nominators deposit TON and receive pool shares representing their proportional ownership. Nominators can also withdraw rewards independently without fully exiting the pool. Rewards are auto-compounded into the share price, and withdrawals are orchestrated via on-chain payout items to avoid gas-limit loops.
+A Tolk-based smart contract protocol for The Open Network (TON) that enables delegated staking through a **nominator pool**. The contract allows multiple validators to use pool funds for election participation while nominators deposit TON and receive pool shares representing their proportional ownership. Nominators can also withdraw rewards independently without fully exiting the pool. Rewards are auto-compounded into the share price; withdrawals execute directly when liquid funds are available, while pending operations use on-chain payout items to avoid gas-limit loops.
 
 ---
 
@@ -26,7 +26,7 @@ A Tolk-based smart contract protocol for The Open Network (TON) that enables del
 ## General Principles
 
 ### 1. Delegated Staking
-The pool aggregates TON from **nominators** (delegators) and makes them available to whitelisted **validators** for participation in the TON validator elections. Validators do not need to maintain a separate wallet balance to track funds — the pool handles all usage records, stake recovery, and profit refunds automatically. Profits from validation are distributed proportionally to nominator shares.
+The pool aggregates TON from **nominators** (delegators) and makes them available to whitelisted **validators** for participation in the TON validator elections. Validators do not need to maintain a separate wallet balance to track funds — the pool handles usage records, stake recovery, and profit refunds. Recovery profit or loss is split between owner equity and nominators according to `ownerShare`.
 
 ### 2. Share-Based Accounting
 Instead of tracking individual TON balances directly, the pool uses a **share/token model**:
@@ -48,8 +48,8 @@ The pool itself lives in the **basechain** (workchain 0) for lower fees, but val
 - Proxies act as dumb, stateless forwarders between the pool and the elector.
 - Round parity (odd/even) allows a validator to have up to two proxies, enabling staggered recovery/staking windows. The number of proxies depends on the validator's round allowance: one proxy for odd-only or even-only, two for all rounds.
 
-### 5. Halt-on-Overload
-If processing pending deposits/withdrawals exhausts available gas or balance in a single transaction, the pool can enter a **halted** state, preventing new validator stakes and owner withdrawals until the backlog is cleared. Nomination deposits and full withdrawals are also blocked while halted.
+### 5. Halt on Insufficient Liquidity
+If a pending-operation chain cannot be started because the liquid balance is below the startup threshold or cannot cover pending withdrawals, the pool enters a **halted** state. While halted, new validator stakes, owner withdrawals, and all nominator `d`/`w`/`r` operations are blocked. Stake recovery and round updates remain available so a later rotation can retry processing and clear the halt.
 
 ---
 
@@ -93,7 +93,7 @@ If processing pending deposits/withdrawals exhausts available gas or balance in 
 | `mainValidator` | `address` | The primary validator address. This validator cannot be removed. |
 | `roundAllowance` | `RoundAllowance` | Which rounds the validator may participate in: `InOddRounds`, `InEvenRounds`, or `InAllRounds`. |
 | `limit` | `ValidatorLimit?` | Optional per-validator staking limit. Can be an absolute TON cap (`ValidatorLimitTon`) or a share of total pool balance (`ValidatorLimitShare`). |
-| `ownerShare` | `uint25` | The owner's cut of validator profits, expressed as parts of `SHARE_BASE` (2^24). For example, `ownerShare = SHARE_BASE` means 100% of profit goes to the owner; `0` means all profit goes to nominators. |
+| `ownerShare` | `uint25` | The owner's share of signed recovery profit or loss, expressed as parts of `SHARE_BASE` (2^24). `SHARE_BASE` assigns all profit and loss to owner equity; `0` assigns it all to nominators. |
 | `maxTonPerValidator` | `coins` | Global maximum stake any single validator may use from the pool. |
 | `minTonPerValidator` | `coins` | Global minimum stake a validator must request for a `new_stake`. |
 | `refundBonus` | `uint33` | Flat bonus compensating the validator for the staking "happy path" (NewStake fee + RecoverStake fee + external operational costs), capped at ~8.6 TON. See [Validator Refunds](#validator-refunds-automatic). |
@@ -103,7 +103,7 @@ If processing pending deposits/withdrawals exhausts available gas or balance in 
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `maxNominators` | `uint10` | Maximum number of distinct nominator entries the pool will accept. If set to `0`, the contract operates in **owner-only mode** (nominator deposits are rejected). Note: fully relaxed single-nominator election timing (as in the original single-nominator pool contract) is not yet implemented; all validators are subject to the same round and election-window checks. |
+| `maxNominators` | `uint10` | Maximum number of distinct nominator entries. Starting an empty pool at `0` creates owner-only mode. Lowering the value later does not block existing nominators from topping up. Fully relaxed single-nominator election timing is not implemented; all validators use the same round and election-window checks. |
 | `minStake` | `coins` | Minimum deposit amount accepted from a nominator. This is the true configurable economic gate; the contract also requires a small gas constant on top of this (see `DEPOSIT_GAS` in the fee table), but that constant is not itself a fee charged to the owner. |
 | `minWithdrawableRewards` | `coins` | Minimum profit a nominator must have accrued before a reward withdrawal (`"r"` comment) is accepted. |
 | `whitelist` | `map<address, bool>` | Optional nominator whitelist. If the map is non-empty, only addresses present in it are allowed to deposit. If empty, all addresses are accepted. Can be updated post-initialization via `UpdateNominatorsWhitelist`. |
@@ -125,7 +125,7 @@ Each validator can have an individual staking limit set via `ValidatorSpecific`.
 
 - **`ValidatorLimitTon`** — an absolute TON cap (`maxTon`). The validator can stake up to this fixed amount per round. The downside is that it does not adapt as the pool grows: if the pool balance doubles from profits, a fixed TON cap still limits the validator to the original amount, underutilizing the pool.
 
-- **`ValidatorLimitShare`** — a share of the pool's projected balance (`maxShare`, expressed as parts of `SHARE_BASE = 16777216`). The projected balance is `pool balance + stakeUsed - pendingDeposits - pendingWithdrawals - POOL_MIN_STORAGE` — i.e. the full pool balance including stake currently locked in the elector. The validator can stake up to `maxShare / SHARE_BASE` of this projected balance per round. This **auto-rebalances as profits accrue**: when the pool grows, each validator's absolute stake allowance grows proportionally. In most cases, share limits are preferable because they keep utilization balanced across validators regardless of pool size.
+- **`ValidatorLimitShare`** — a share of projected pool balance (`maxShare`, expressed as parts of `SHARE_BASE = 16777216`). The calculation includes `stakeUsed` and excludes incoming transaction funding, pending deposits, the current TON value of pending-withdrawal shares, and `POOL_MIN_STORAGE`. The validator can stake up to `maxShare / SHARE_BASE` of this balance per round. This **auto-rebalances as profits accrue**.
 
 The main validator's limit is set during `init-pool`; extra validators get their limit during `add-validator`. Both can be updated later via `update-validator-limit`.
 
@@ -153,7 +153,8 @@ acton script scripts/add-validator.tolk --net mainnet
 ```bash
 # Initialize
 BATCH=1 \
-  POOL_ADDRESS="kQ..." MAIN_VALIDATOR="kQ..." \
+  DEPLOYER_WALLET="owner" POOL_ADDRESS="kQ..." MAIN_VALIDATOR="kQ..." \
+  VALIDATOR_ROUND_ALLOWANCE=3 \
   LIMIT_KIND=share MAX_SHARE=4194304 \
   INIT_VALUE=100000000000000 OWNER_SHARE=8388608 \
   MAX_TON_PER_VALIDATOR=10000000000000000 MIN_TON_PER_VALIDATOR=300000000000000 \
@@ -163,7 +164,7 @@ BATCH=1 \
 
 # Add second validator
 BATCH=1 \
-  POOL_ADDRESS="kQ..." VALIDATOR_ADDRESS="kQ..." \
+  DEPLOYER_WALLET="owner" POOL_ADDRESS="kQ..." VALIDATOR_ADDRESS="kQ..." \
   VALIDATOR_ROUND_ALLOWANCE=3 LIMIT_KIND=share MAX_SHARE=4194304 \
   ADD_VALIDATOR_VALUE=10000000000000 \
   acton script scripts/add-validator.tolk --net mainnet
@@ -213,7 +214,8 @@ acton script scripts/add-validator.tolk --net mainnet
 ```bash
 # Initialize
 BATCH=1 \
-  POOL_ADDRESS="kQ..." MAIN_VALIDATOR="kQ..." \
+  DEPLOYER_WALLET="owner" POOL_ADDRESS="kQ..." MAIN_VALIDATOR="kQ..." \
+  VALIDATOR_ROUND_ALLOWANCE=3 \
   LIMIT_KIND=share MAX_SHARE=2796203 \
   INIT_VALUE=100000000000000 OWNER_SHARE=8388608 \
   MAX_TON_PER_VALIDATOR=10000000000000000 MIN_TON_PER_VALIDATOR=300000000000000 \
@@ -222,12 +224,12 @@ BATCH=1 \
   acton script scripts/init-pool.tolk --net mainnet
 
 # Add second and third validators
-BATCH=1 POOL_ADDRESS="kQ..." VALIDATOR_ADDRESS="kQ_2..." \
+BATCH=1 DEPLOYER_WALLET="owner" POOL_ADDRESS="kQ..." VALIDATOR_ADDRESS="kQ_2..." \
   VALIDATOR_ROUND_ALLOWANCE=3 LIMIT_KIND=share MAX_SHARE=2796203 \
   ADD_VALIDATOR_VALUE=10000000000000 \
   acton script scripts/add-validator.tolk --net mainnet
 
-BATCH=1 POOL_ADDRESS="kQ..." VALIDATOR_ADDRESS="kQ_3..." \
+BATCH=1 DEPLOYER_WALLET="owner" POOL_ADDRESS="kQ..." VALIDATOR_ADDRESS="kQ_3..." \
   VALIDATOR_ROUND_ALLOWANCE=3 LIMIT_KIND=share MAX_SHARE=2796203 \
   ADD_VALIDATOR_VALUE=10000000000000 \
   acton script scripts/add-validator.tolk --net mainnet
@@ -245,7 +247,7 @@ acton script scripts/update-validator-limit.tolk --net mainnet
 # Pick the validator, then: share, maxShare = 0
 
 # Batch
-BATCH=1 POOL_ADDRESS="kQ..." VALIDATOR_ADDRESS="kQ..." \
+BATCH=1 DEPLOYER_WALLET="owner" POOL_ADDRESS="kQ..." VALIDATOR_ADDRESS="kQ..." \
   LIMIT_KIND=share MAX_SHARE=0 MSG_VALUE=1000000000 \
   acton script scripts/update-validator-limit.tolk --net mainnet
 ```
@@ -259,36 +261,43 @@ The validator stays registered but cannot stake. Raise the share limit above 0 t
 ### Shares and Pricing
 - **Deposit**: `shares = depositAmount * poolSupply / nominatorsAmount`.
 - **Withdrawal**: `tonValue = shares * nominatorsAmount / poolSupply`.
-- Rounding favors the nominator at the 1-share-point level (initially 1 nanoton).
+- Integer division floors deposit shares and withdrawal TON amounts. Reward withdrawals also floor the number of shares burned, favoring the nominator by less than one share unit.
 
 ### Rounds and Rotation
-- `roundIndex` increments each time the validator set hash changes.
+- `roundIndex` increments only after a clean rotation. If the validator set changes while `prevRound` still has usage records, the round closes without incrementing.
 - `curRound` and `prevRound` store usage records (maps of `proxy_hash → TonUsage`). The proxy hash is the 256-bit address hash (without workchain prefix), reducing storage footprint and simplifying lookup consistency between round data and validator data.
 - Validators can stake in the current round if the round is open, elections are active, and they have no prior usage in that round.
-- `RecoverStake` can only be called after enough time has passed (`rotationCount >= 2` or `now > rotationTime + heldFor + 60`).
+- `RecoverStake` requires at least two validator-set changes observed by pool calls. At exactly two changes, `now > rotationTime + heldFor + 60` must also hold; after more than two, the timestamp is irrelevant.
 
 ### Pending Operations
 To avoid unbounded map iteration inside a single transaction:
 - **Pending deposits** and **pending withdrawals** are materialized as linked **PayoutItem** contracts.
 - At round rotation, the pool triggers a chain of burns; each `PayoutItem` sends a `PayoutBurnNotification` back to the pool, which then finalizes the deposit/withdrawal one by one across multiple transactions.
-- If the process halts (e.g., out of gas or funds), subsequent rounds can resume it.
+- If insufficient liquidity prevents a chain from starting, the pool halts and a later rotation retries processing.
 
 ### Punishment / Slashing Reserve
-The pool enforces solvency in case a validator is fined by the elector. Before each `new_stake`, the contract checks:
+The pool requires owner equity to participate in validator risk. Before each `new_stake`, after counting the prospective slot, it checks:
 ```
-ownerShare >= maxPunishment(minTonPerValidator) * activeSlots
+ownerEquity >= maxPunishment(minTonPerValidator) * activeSlots
 ```
-The punishment amount is derived from TON config param 40 (misbehavior fines), scaled by severity and duration multipliers.
+The punishment amount is derived from TON config param 40 (misbehavior fines), scaled by severity and duration multipliers. Recovery losses are still split between owner equity and nominators according to `ownerShare`; this reserve is a capitalization requirement, not first-loss protection for nominators.
 
 ### Validator Refunds (Automatic)
 
 Validators **do not need to maintain a separate wallet balance** to track gas/TON tied up in the pool. The contract compensates the validator for the staking "happy path" costs via a single flat **`refundBonus`** parameter:
 
+For accounting, the contract divides it as follows:
+```
+ownerPart = min(refundBonus / 3, 1 TON)
+splitBonus = refundBonus - ownerPart
+```
+`ownerPart` is borne entirely by owner equity. `splitBonus` is deducted from recovered value before the remaining profit or loss is divided according to `ownerShare`, so owner and nominators bear that part together.
+
 - On successful `recover_stake_ok`, the pool calculates net profit (recovered amount minus staked amount).
-- If the round was profitable, the **full `refundBonus`** is sent to the validator via a `StakeReturned` message.
+- The **full `refundBonus`** is sent only when `recovered - splitBonus > staked`. This prevents the shared part from turning the accounted round result negative merely to pay the bonus.
 - The bonus cost is split into two parts:
-  - **Owner-only part** (one third of the bonus, capped at 1 TON): representing the NewStake fee the owner covers alone. This is **not** deducted from the recovered amount, so it does not reduce nominator profit — it comes out of the owner's equity.
-  - **Split part** (two thirds of the bonus): deducted from the recovered amount before computing profit, so it is **split between the owner and nominators** according to `ownerShare`.
+  - **Owner-only part (`ownerPart`)**: not deducted from recovered value, so it comes from owner equity.
+  - **Shared part (`splitBonus`)**: deducted before profit/loss allocation and therefore shared according to `ownerShare`.
 - If the round was unprofitable (slashed or no profit), no bonus is paid. The validator's overspend on unsuccessful operations must be resolved directly with the pool owner if necessary.
 - `refundBonus` is configured at initialization and can be updated later via `UpdateLimits`.
 
@@ -300,9 +309,9 @@ When a validator recovers a stake, the elector returns the staked TON plus any v
 2. **RecoverStake fee** (~1 TON) — covered by the split part.
 3. **External operational bonus** — the remainder of the split part, compensating for the validator's own wallet gas, forwarding fees, and transaction costs outside the pool.
 
-The full bonus is paid **only if the round was profitable**, so it is funded out of real validation profit, never out of nominator principal. This gates the bonus behind real validation profit to discourage bonus inflation from rogue validators.
+The full bonus is paid only when profit exceeds `splitBonus`. The split part is taken before allocating the remaining profit; the owner-only part is charged to owner equity.
 
-The **trust boundary** between the owner and nominators is `refundBonus`. It is paid out of validation profit — the owner sets it, and nominators rely on the owner choosing a reasonable value. The bonus is capped at ~8.6 TON and is only paid when the round's profit exceeds the split part. So even a rogue owner can only direct up to 8.6 TON of a round's profit to the validator, and only in rounds where profit exceeds that amount.
+The **trust boundary** between the owner and nominators is `refundBonus`. The owner sets it, and nominators rely on the owner choosing a reasonable value. It is capped at approximately 8.6 TON and paid only when profit exceeds `splitBonus`.
 
 **Typical values on masterchain :** the default `refundBonus` is 3 TON. The validator receives the full 3 TON; of that, 2 TON is deducted from the recovered amount (reducing profit shared by owner and nominators) and 1 TON is borne by the owner alone. The actual external validator cost per round is ~0.6 TON, so a validator's wallet balance grows over time. This is done for simplicity — the owner does not need to measure exact gas costs per round. An owner who wants tighter accounting can measure actual per-round costs and adjust `refundBonus` downward.
 
@@ -370,14 +379,14 @@ If `prevRound.users` is **empty**, the pool executes a **clean rotation**:
 - `storage.roundIndex` increments
 - Pending deposits and withdrawals are processed
 
-If `prevRound.users` is **not empty** (i.e., outstanding stakes exist), the pool **closes the round** instead:
+If `prevRound.users` is **not empty**, the pool **closes the round** instead:
 - `roundClosed = true`
 - No new stakes are accepted until the round re-opens (all outstanding stakes must be recovered first).
 
 ### Active Slots and `stakeUsed`
 
 The pool tracks global round-level metrics:
-- **`activeSlots`**: number of validators with an unrecovered stake in the current or previous round.
+- **`activeSlots`**: number of unrecovered stake usages in the current or previous round. An all-round validator can occupy two slots simultaneously.
 - **`stakeUsed`**: total TON currently locked in elector stakes.
 
 When a `NewStake` succeeds, `activeSlots++` and `stakeUsed += tonUsed`.
@@ -396,16 +405,16 @@ Outside this window, stakes are rejected even if the round is technically open.
 
 A validator cannot recover a stake immediately after staking. Each usage record carries a `RotationData` structure that tracks:
 - `vsetHash`: validator set hash at the time of staking
-- `rotationTime`: timestamp of the last vset rotation
-- `rotationCount`: how many times the vset has rotated since this stake
+- `rotationTime`: staking time initially, then the timestamp of the latest validator-set change observed by a pool call
+- `rotationCount`: how many distinct validator-set changes have been observed for this usage
 
 Recovery is only permitted when:
 ```
 rotationCount >= 2
-  OR
-now > rotationTime + heldFor + 60
+AND, when rotationCount == 2:
+  now > rotationTime + heldFor + 60
 ```
-This ensures the elector has held the stake for the required duration (`stakeHeldFor`, also from config 15) plus a small safety margin.
+After more than two observed changes, the timestamp condition is skipped. This enforces the configured holding period plus a safety margin in the two-change case.
 
 ### Round Closure and Re-Opening
 
@@ -414,14 +423,14 @@ If the main validator's vset changes while `prevRound` still contains unrecovere
 - New stakes are forbidden
 - Validators must recover their outstanding stakes
 
-Once the **last** usage record in `prevRound` is recovered (i.e., `roundDone`), the pool attempts a **forced rotation** inside the `RecoverStakeOk` handler. If successful, the round re-opens and pending operations are processed.
+When recovery empties the affected round, `RecoverStakeOk` sends an asynchronous `UpdateVset` message to the pool itself. Rotation and pending-operation processing occur in that later transaction.
 
 ### Processing Pending Operations at Boundaries
 
-Whenever a clean rotation occurs (either via `UpdateVset` or as the last recovery in a closed round), the pool checks for pending nominator deposits and withdrawals:
+Whenever `UpdateVset` completes a clean rotation, including the asynchronous self-message scheduled after a round-ending recovery, the pool checks for pending nominator deposits and withdrawals:
 - If `pendingDeposits > 0` or `pendingWithdrawals > 0`, the pool loads the `NominatorsData` and processes them.
-- This can result in `halted = true` if the combined gas cost would exceed the transaction budget.
-- While halted, new validator stakes, nominator deposits/withdrawals, and owner withdrawals are blocked, but stake recovery can still proceed.
+- This results in `halted = true` when liquid balance is below the payout-chain startup threshold or cannot cover pending withdrawals.
+- While halted, new validator stakes, all nominator `d`/`w`/`r` operations, and owner withdrawals are blocked. Stake recovery and `UpdateVset` remain available.
 
 ---
 
@@ -471,11 +480,11 @@ This wrapper lets the pool authenticate that the response really came from an ex
 
 ### Bounce Handling
 
-If the elector bounces a `NewStake` or `RecoverStakeCompat` message (e.g., the proxy was frozen or the elector rejected the message during the action phase), the proxy receives a bounced inbound message. Its `onBouncedMessage` handler immediately synthesizes a `NewStakeError` or `RecoverStakeError` and forwards it back to the pool, again tagged with the `ProxyResponseData` identity. The pool then unwinds the temporary usage record exactly as if the elector had sent the error explicitly.
+If the elector bounces a `NewStake` or `RecoverStakeCompat` message, the proxy synthesizes a corresponding error and forwards it to the pool with `ProxyResponseData`. A `NewStakeError` unwinds the temporary usage record. A recovery error leaves usage active so recovery can be retried.
 
 ### Unfreeze Resilience
 
-Because proxy addresses are derived deterministically from `(validator_address, pool_address, proxy_code)`, the pool can always attach the proxy `StateInit` to its outbound messages. This means a proxy that has been frozen due to inactivity can be **transparently unfrozen** the next time the pool sends a `NewStake` or `RecoverStakeCompat` message to it.
+Proxy addresses are derived deterministically from proxy code and `(pool, validator, roundParity)`. Recovery requests include proxy `StateInit`, allowing a frozen proxy to be restored. `NewStake` targets the plain proxy address and can bounce if that proxy is frozen.
 
 ---
 
@@ -483,13 +492,13 @@ Because proxy addresses are derived deterministically from `(validator_address, 
 
 ### Nominator Operations (Text Comments)
 
-Nominators interact with the pool by sending text-comment messages. Nominators can deposit TON, withdraw their entire position, or withdraw only accrued rewards while leaving the principal stake in the pool.
+Nominators interact with the pool using an exact text-comment body: a 32-bit zero prefix followed by one ASCII byte `d`, `w`, or `r`, with no trailing bits or references.
 
 | Comment | Action |
 |---------|--------|
 | `"d"` | **Deposit**: TON minus `DEPOSIT_GAS` is converted to shares. If the round is closed or there are still unrecovered stakes in the previous round, funds go into a pending deposit queue. |
-| `"w"` | **Full Withdrawal**: Removes the nominator. If balance is insufficient, creates a pending withdrawal PayoutItem for later. |
-| `"r"` | **Reward Withdrawal**: Withdraws only the profit (share value minus original deposit). Also subject to pending-queue logic if the round is closed. |
+| `"w"` | **Full Withdrawal**: Withdraws all current shares. It becomes pending if the round is closed, liquid balance is insufficient, or the nominator already has a pending operation. A pending deposit is retained rather than cancelled. |
+| `"r"` | **Reward Withdrawal**: Withdraws only profit (share value minus the deposit baseline). It uses the same pending conditions as other withdrawals. |
 
 ### Validator Operations
 
@@ -497,19 +506,19 @@ Nominators interact with the pool by sending text-comment messages. Nominators c
 |---------|--------|--------|
 | `NewStake` | Validator | Uses pool TON and forwards it (via proxy) to the elector. Records usage in the current round. |
 | `RecoverStakeCompat` | Validator | Requests stake recovery through the validator's proxy. Enforces timing and rotation checks. |
-| `RecoverStakeUnrestricted` | Any | Allows a third party to pay for recovering a validator's stake (useful if validator is low on gas). |
+| `RecoverStakeUnrestricted` | Any | Allows a third party to fund recovery. Requested and forwarded funding is capped at `MAX_RECOVERY_VALUE`; the caller must also cover gas and forwarding fees. |
 
 ### Owner Operations
 
 | Message | Effect |
 |---------|--------|
-| `InitPoolMessage` | Transitions contract from uninitialized to active. Deploys the main validator's proxy and sets all parameters. |
-| `AddValidator` | Whitelists an additional validator with its own proxy and round allowance. |
-| `RemoveValidator` | Bans a validator from new stakes. Record is kept until stake recovery is complete. |
+| `InitPoolMessage` | Transitions contract from uninitialized to active. Deploys one or two main-validator proxies according to round allowance and sets all parameters. |
+| `AddValidator` | Whitelists an additional validator and deploys one or two proxies according to round allowance. |
+| `RemoveValidator` | Removes an idle extra validator immediately. A validator with active usage remains stored and banned from new stakes. |
 | `UpdateLimits` | Adjusts global or per-validator staking/nominator limits. |
 | `UpdateNominatorsWhitelist` | Replaces the nominator whitelist. If the whitelist is non-empty, only listed addresses may deposit. |
-| `OwnerWithdrawal` | Withdraws the owner's share of profits, provided free balance exists and the pool is not halted. |
-| `AddFunds` | Accepts bare TON to increase the owner's effective share. |
+| `OwnerWithdrawal` | Withdraws available owner equity, including contributed principal, after nominator liabilities, pending deposits, storage reserve, and punishment capitalization are accounted for. |
+| `AddFunds` | Permissionless typed message that adds TON to owner equity. |
 
 ---
 
@@ -519,14 +528,14 @@ All fees are defined in `contracts/fees.tolk`:
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| `POOL_MIN_STORAGE` | 10 TON | Minimum balance the pool must always retain. |
-| `PROXY_MIN_STORAGE` | 10 TON | Storage reserve for each deployed validator proxy. |
-| `DEPOSIT_GAS` | 0.2 TON | Gas constant required on every nominator deposit. This is **not a fee** retained by the owner; it is simply the minimum message value needed to cover the compute and action-phase gas of processing a deposit. The configurable economic gate is `minStake`. |
-| `WITHDRAWAL_GAS` | 0.2 TON | Minimum gas constant required when a withdrawal enters the pending queue (covers the cost of deploying and burning a `PayoutItem`). Direct withdrawals that execute instantly do not incur this constant. |
+| `POOL_MIN_STORAGE` | 10 TON | Normal pool storage reserve used by balance and solvency calculations. Emergency paths may spend into it. |
+| `PROXY_MIN_STORAGE` | 10 TON | Target storage reserve for each deployed validator proxy. Extreme recovery handling may spend into it. |
+| `DEPOSIT_GAS` | 0.2 TON | Amount excluded from every deposit before shares are calculated. It funds execution; unused message value is normally returned with the notification. |
+| `WITHDRAWAL_GAS` | 0.2 TON | Minimum inbound value when a withdrawal enters the pending queue. The later burn chain is started separately with `PAYOUT_ITEM_BALANCE`; direct withdrawals do not have this gate. |
 | `NEW_VALIDATOR_FEE` | 0.1 TON | Gas budget deducted when adding a new validator. |
 | `PAYOUT_ITEM_BALANCE` | 0.05 TON | Forwarded to each PayoutItem on deployment. |
-| `REFUND_THRESHOLD` | 1 TON | Max forwarded TON for various refund/proxy gas buffers. |
-| `MAX_RECOVERY_VALUE` | 1 TON | Cap on the value forwarded from a `RecoverStakeOk` response when relaying recovered stake back to the pool. |
+| `REFUND_THRESHOLD` | 1 TON | Caps the owner-only bonus component and the `NewStake` value retained for refund/gas handling. |
+| `MAX_RECOVERY_VALUE` | 1 TON | Caps funding forwarded from the pool to the proxy/elector for a recovery request. It does not cap recovered stake returned to the pool. |
 | `PROXY_INIT_VALUE` | 0.1 TON | Extra value attached on top of `PROXY_MIN_STORAGE` when deploying a validator proxy, to cover init gas. |
 
 In addition, `fees.tolk` defines a gas-budget *constant* (in gas units, not TON) used by compute-path checks: `RECOVER_STAKE_OK_GAS`. This is an internal compute budget, not a user-facing fee.
@@ -535,20 +544,20 @@ In addition, `fees.tolk` defines a gas-budget *constant* (in gas units, not TON)
 
 ## Getters
 
-The pool exposes several getters for off-chain queries:
+The pool exposes several getters for off-chain queries. Only `owner()` and `get_pool_id()` support uninitialized storage; all other getters below require initialization.
 
 | Getter | Returns | Description |
 |--------|---------|-------------|
 | `owner()` | `address` | Pool owner address. Works in both uninitialized and active states. |
 | `get_pool_id()` | `uint32` | Pool ID. Works in both uninitialized and active states. |
 | `get_pool_data()` | `Storage` | Full pool state (owner, shares, round status, validator data, nominators, etc.). Only available after initialization. |
-| `get_nominator_data(nominatorAddress: int)` | `GetNominatorData` | Nominator info from a 256-bit address hash. Searches basechain (`wc=0`) and masterchain (`wc=-1`) for compatibility. |
-| `get_validator_info(address: address)` | `GetValidatorInfo` | Validator data, usage records for both rounds, and a **projected `roundIndex` and `rotated` flag** after running the same vset rotation check as `UpdateVset`. It also returns the **current `stakeable` amount** — the TON the validator is allowed to use in the current round — computed by applying the exact same validation checks as `NewStake` (round state, parity, usage, limits, balance, owner undercapitalization, etc). The goal is to let off-chain tools know whether a validator is actually eligible to stake and how much, without attempting a real transaction. Because this getter evaluates `rotateRound`, calling it may advance the round state in the same way a real `UpdateVset` message would. |
+| `get_nominator_data(nominatorAddress: int)` | `GetNominatorData` | Nominator info from a 256-bit address hash. Searches workchain `0` and then `-1`, and throws 86 if absent. It cannot query other workchains or disambiguate identical hashes in both searched workchains. |
+| `get_validator_info(address: address)` | `GetValidatorInfo` | Validator data, usage records, and a read-only projected `roundIndex`/`rotated` result. `stakeable` checks banned, closed and halted state, parity, usage, config-17 bounds, limits, balance, minimum stake, and owner capitalization. It intentionally omits election timing and message/body checks. The getter never persists projected rotation. |
 | `get_validator_info_mtc(workchain: int, hash: int)` | `GetValidatorInfo` | Same as `get_validator_info`, but accepts workchain + hash for masterchain tooling compatibility. |
 | `get_proxy_address(validator: address)` | `GetProxyAddressResult` | Even/odd proxy addresses for a given validator. |
 | `get_limits_per_validator()` | `(coins, coins, int)` | `(minTonPerValidator, maxTonPerValidator, refundBonus)`. |
 | `get_nominator_minimal_stake()` | `GetMinStake` | `(minStake, minExpectedValue)` where `minExpectedValue = minStake + DEPOSIT_GAS`. |
-| `get_max_punishment(stake: int)` | `int` | Max punishment fine for a given stake amount, derived from config param 40. |
+| `get_max_punishment(stake: int)` | `int` | Raises input below `minTonPerValidator` to that minimum, rejects input above `maxTonPerValidator`, and returns the config-40 maximum fine capped by stake. If config 40 is absent, the fallback is 101 TON. |
 | `get_pool_invariants()` | `PoolInvariants` | Audit/diagnostic getter that recomputes the cached nominator aggregates (share supply, pending deposits/withdrawals, nominator count) from the primary nominator map and reports whether they match the stored aggregates (`supplyMatch`, `pendingWithdrawalsMatch`, `pendingDepositsMatch`, `nmCountMatch`, `allMatch`). No assertion is performed — it reports only. Also exposes `nominatorsAmount` and a `projectedBalance` (`balance + stakeUsed - pendingDeposits - POOL_MIN_STORAGE`) for off-chain solvency monitoring, plus the recomputed values for debugging. |
 
 ---
@@ -556,15 +565,15 @@ The pool exposes several getters for off-chain queries:
 ## Security Model
 
 ### Role Separation
-- **Owner**: Controls economics (share of profit, validators and nominators whitelists, limits). Can withdraw owner profits.
+- **Owner**: Controls economics (profit/loss share, validator and nominator whitelists, and limits). Can withdraw available owner equity.
 - **Validator**: Only acts as the technical operator (new/recover stake). Cannot touch nominator funds directly.
 - **Nominator**: Only depositor/withdrawer. Cannot influence validator operations.
 
 ### Proxy Authentication
-All elector responses (`NewStakeOk`, `NewStakeError`, `RecoverStakeOk`, `RecoverStakeError`) are authenticated by deriving the expected proxy address from `(validator_address, pool_address, proxy_code)` state-init. This prevents spoofed responses.
+All elector responses (`NewStakeOk`, `NewStakeError`, `RecoverStakeOk`, `RecoverStakeError`) are authenticated by deriving the expected proxy address from proxy code and `(pool, validator, roundParity)`. This prevents spoofed responses.
 
 ### Owner Share requirements
-Before any `new_stake`, the contract ensures the owner's share of total balance exceeds the worst-case punishment fine multiplied by the number of active validator slots. This supposed to protect nominators from validator slashing.
+Before `new_stake`, the contract ensures owner equity covers the worst-case minimum-stake punishment multiplied by the resulting active slot count. Recovery losses are nevertheless split according to `ownerShare`.
 
 ### Solvency Check
 Before processing nominator deposits/withdrawals, the pool verifies that its **projected balance** (`balance - pendingDeposits - POOL_MIN_STORAGE + stakeUsed`) exceeds `nominatorsAmount`; otherwise the message is rejected. The same projected balance is exposed by `get_pool_invariants()` for off-chain solvency monitoring.
@@ -573,20 +582,20 @@ Before processing nominator deposits/withdrawals, the pool verifies that its **p
 If a `new_stake` message bounces (e.g., proxy frozen or elector rejection), the usage record is automatically reversed and the validator's locked funds are released.
 
 ### Halt / Graceful Degradation
-If pending nominator operations cannot be cleared in a single round rotation, the pool sets `halted = true`, temporarily blocking new validator stakes until the queue is fully processed.
+If liquidity prevents pending processing from starting, the pool sets `halted = true`. A later rotation retries processing; asynchronous payout notifications may still be in flight when the halt clears.
 
 ---
 
 ## Known Limitations & Implementation Status
 
 ### Implemented optional features
-- Nominators from arbitrary workchains are supported for deposit/withdrawal.
+- Nominators from arbitrary workchains can deposit and withdraw, but `get_nominator_data` supports only workchains `0` and `-1`.
 - Configurable nominator quantity and minimum stake.
 - Configurable per-validator and global staking limits, validated against network config 17 bounds.
 - Nominator whitelist: owner can restrict deposits to a specific set of addresses via `NominatorsSettings.whitelist` or `UpdateNominatorsWhitelist`.
 - Reward withdrawal via `"r"` comment.
 - Dynamic validator quantity (up to **32** validators).
-- Owner-only mode: set `maxNominators = 0` to reject nominator deposits.
+- Owner-only mode: initialize an empty pool with `maxNominators = 0` to prevent creation of nominator records. Existing nominators can still top up if the limit is lowered later.
 
 ### Not yet implemented
 - **Single-nominator relaxed timing**: The original single-nominator pool allowed the validator to bypass election-window timing checks. This contract always enforces `ElectionsTiming` bounds, even when `maxNominators = 0`.
@@ -611,7 +620,7 @@ acton test
 
 ## Scripts
 
-The `scripts/` directory contains standalone Tolk scripts that drive the full pool lifecycle. Each script prompts interactively for any required input (wallet, pool address, amounts, validators, limits) and shows a confirmation dialog before sending a transaction. Set `BATCH=1` to skip the dialog for non-interactive runs.
+The `scripts/` directory contains standalone Tolk scripts for deployment, initialization, owner administration, and inspection. Each script prompts for missing inputs and shows a confirmation dialog before sending. `BATCH=1` skips confirmation only; provide every prompted value through environment variables for a fully non-interactive run.
 
 Scripts run in three modes:
 
@@ -623,7 +632,7 @@ Scripts run in three modes:
 
 #### Deploy the pool
 
-Deploys the pool contract for a given owner and pool ID. Anyone can deploy; the owner initializes afterwards.
+Derives and deploys an uninitialized pool in basechain workchain 0 for a given owner and pool ID. Anyone can deploy; the owner initializes it in a separate transaction.
 
 ```bash
 acton script scripts/deploy.tolk --net mainnet
@@ -631,7 +640,7 @@ acton script scripts/deploy.tolk --net mainnet
 
 #### Initialize the pool
 
-Sets the main validator, owner share, staking limits, refund parameters, and nominator settings. Must be sent by the pool owner. An optional per-validator limit can be set for the main validator during init.
+Sets the main validator, its round allowance (`1=odd`, `2=even`, `3=all`), owner share, staking limits, refund parameters, and nominator settings. Must be sent by the pool owner. Set `VALIDATOR_ROUND_ALLOWANCE` for batch use. The initial whitelist is empty and can be updated afterward.
 
 ```bash
 acton script scripts/init-pool.tolk --net mainnet
@@ -639,7 +648,7 @@ acton script scripts/init-pool.tolk --net mainnet
 
 #### Add funds to the pool
 
-Sends TON to the pool to increase the owner's effective share. Anyone could send.
+Sends an `AddFunds` message to increase owner equity. The contract accepts it from anyone; the supplied script sends from the selected owner wallet.
 
 ```bash
 acton script scripts/add-funds.tolk --net mainnet
@@ -655,7 +664,7 @@ acton script scripts/add-validator.tolk --net mainnet
 
 #### Remove a validator
 
-Bans a validator from new stakes. If the validator has outstanding stake, it is banned until recovery completes; otherwise it is removed immediately. The main validator cannot be removed. Sent by the owner.
+Removes an idle extra validator immediately. If it has active usage, its record remains banned from new stakes so recovery can complete. The main validator cannot be removed. Sent by the owner.
 
 ```bash
 acton script scripts/remove-validator.tolk --net mainnet
@@ -693,9 +702,9 @@ Replaces the nominator whitelist. A non-empty whitelist restricts deposits to th
 acton script scripts/update-nominators-whitelist.tolk --net mainnet
 ```
 
-#### Withdraw owner profits
+#### Withdraw owner equity
 
-Withdraws the owner's share of accrued profits. If the requested amount exceeds what is available, the transaction is refunded. Sent by the owner.
+Withdraws available owner equity after contract reserves and liabilities are accounted for. If the requested amount exceeds what is available, the transaction is refunded. Sent by the owner.
 
 ```bash
 acton script scripts/owner-withdrawal.tolk --net mainnet
@@ -703,7 +712,7 @@ acton script scripts/owner-withdrawal.tolk --net mainnet
 
 #### Inspect the pool
 
-Read-only script that prints the full pool state or per-validator info. No wallet needed.
+Read-only script that prints the full pool state or per-validator info. No wallet is needed. Add `--net mainnet` or `--net testnet` for a live pool; without `--net`, it reads the local emulator snapshot.
 
 ```bash
 # Pool overview
@@ -728,10 +737,11 @@ acton script scripts/owner-withdrawal.tolk --net mainnet --tonconnect
 
 ### Batch / non-interactive
 
-Set `BATCH=1` to skip the confirmation dialog. All interactive prompts can be pre-filled via env vars. Note: `coins`-typed env vars (`MSG_VALUE`, `MAX_TON`, `MIN_TON_PER_VALIDATOR`, `VALUE`, etc.) are in **nanograms** (1 TON = 1000000000), while `int`-typed env vars (`MAX_SHARE`, `MAX_NOMINATORS`, `OWNER_SHARE`) are plain integers.
+Set `BATCH=1` to skip the confirmation dialog. It does not suppress missing-input prompts; provide all required environment variables, including `DEPLOYER_WALLET` for wallet-backed operations. `coins`-typed env vars (`MSG_VALUE`, `MAX_TON`, `MIN_TON_PER_VALIDATOR`, `VALUE`, etc.) are in **nanograms** (1 TON = 1000000000), while integer settings (`MAX_SHARE`, `MAX_NOMINATORS`, `OWNER_SHARE`, `VALIDATOR_ROUND_ALLOWANCE`) are plain integers.
 
 ```bash
 BATCH=1 \
+  DEPLOYER_WALLET="owner" \
   POOL_ADDRESS="kQ..." \
   VALIDATOR_ADDRESS="kQ..." \
   LIMIT_KIND=ton \
