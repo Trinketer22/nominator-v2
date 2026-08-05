@@ -109,6 +109,20 @@ get fun `test should deploy with specified parameters`(
     expect(nominatorsAfter.minWithdrawableReward).toEqual(minReward);
 }
 
+get fun `test should reject deployment to masterchain`() {
+    val (pool, owner, _NotOwner, validator) = setupDeployTest();
+    val deployMsg = createMessage({
+        bounce: false,
+        dest: getPoolStateInit(owner.address, 42, MASTERCHAIN),
+        value: ton("1000"),
+        body: defaultDeployBody(),
+    });
+
+    var res = net.send(owner.address, deployMsg);
+
+    expect(res).toHaveFailedTx({ exitCode: ErrorsPool.InvalidWorkchain });
+}
+
 get fun `test should reject low value in case maxNominators > 0 and values is not enough to cover validator fine`() {
     val (pool, owner, _NotOwner, validator) = setupDeployTest();
 

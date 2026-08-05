@@ -91,12 +91,13 @@ fun defaultDeployBody(params: CustomDeployParameters? = null): InitPoolMessage {
     };
 }
 
-fun getPoolStateInit(owner: address, poolId: int): AutoDeployAddress {
+fun getPoolStateInit(owner: address, poolId: int, workchain: int = BASECHAIN): AutoDeployAddress {
     val poolStateInit: AutoDeployAddress = {
         stateInit: {
             data: PoolStorageNotInitialized { owner, poolId }.toCell(),
             code: build("Pool"),
         },
+        workchain,
     };
 
     return poolStateInit;

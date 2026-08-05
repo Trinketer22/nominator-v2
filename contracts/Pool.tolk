@@ -454,6 +454,7 @@ fun onInternalMessage(in: InMessage) {
             in.body,
             { throwIfOpcodeDoesNotMatch: ErrorsPool.PoolStorageNotInitialized },
         );
+        assert(contract.getAddress().getWorkchain() == BASECHAIN, ErrorsPool.InvalidWorkchain);
         val nmSettings = msg.nominatorsSettings.load();
         assert(in.senderAddress == storage.owner, ErrorsPool.NotOwner);
         assert(msg.roundAllowance as int > 0, ErrorsPool.AtLeastOneRoundShouldBeAlowed);
