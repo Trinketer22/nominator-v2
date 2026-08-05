@@ -1785,6 +1785,30 @@ get fun `test that if any stakes used in prev round, deposit should become pendi
     assertDelayedOperation(pool, testNm.address, false, depoValue);
 }
 
+get fun `test if nominator has pending deposits, withdrawal should go pending`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(20);
+
+    val randomNm = nominators.get(random.range(19));
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+
+    val depoValue = random.range(ton("20000")) + ton("10000");
+
+    // There are stakes in prev round, so depo will go pending
+    assertDelayedOperation(pool, randomNm, false, depoValue);
+    // But the withdrawal might have been instant, that would be no bueno
+    assertDelayedOperation(pool, randomNm, true);
+}
+
 get fun `test that pending operations can only be claimed once`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);

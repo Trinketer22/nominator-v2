@@ -62,9 +62,11 @@ fun Nominator.withdrawShare(
     assert(self.withdrawalIndex <= roundIndex, ErrorsPool.WithdrawalAlreadyRequested);
 
     self.share -= shareCount;
+    // If nominator has any pending, withdrawal should go pending to avoid any races posibility.
+    val hasAnyPending = (self.pendingWithdrawal | self.pendingDeposit) > 0;
 
     // 0 case can only be withdrawn in pending mode again
-    if (roundClosed || availableBalance < shareValue || shareCount == 0) {
+    if (roundClosed || availableBalance < shareValue || hasAnyPending) {
         assert(msgValue >= WITHDRAWAL_GAS, ErrorsPool.NotEnoughGas);
         // Means all the expenses are out of incommingValue
         reserveGramsOnBalance(
