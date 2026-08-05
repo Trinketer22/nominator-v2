@@ -475,6 +475,7 @@ fun onInternalMessage(in: InMessage) {
 
         var mainValidator = Validator {
             usageState: 0,
+            roundParity: msg.roundAllowance,
             limit: msg.limit,
         };
 

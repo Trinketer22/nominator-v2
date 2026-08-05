@@ -39,6 +39,8 @@ get fun `test should deploy with specified parameters`(
     );
     fuzz.assume(boundMin < boundMax);
 
+    val mainAllowance = random.range(2) + 1;
+
     val (pool, deployer, _notOwnerr, validator) = setupDeployTest();
 
     expect(testing.isDeployed(pool.address)).toBeFalse();
@@ -55,6 +57,7 @@ get fun `test should deploy with specified parameters`(
             maxTonPerValidator: boundMax,
             minTonPerValidator: boundMin,
             mainValidator: validator,
+            roundAllowance: mainAllowance as RoundAllowance,
             limit: null,
             refundBonus: refundBonus,
             nominatorsSettings: NominatorsSettings {
@@ -75,14 +78,17 @@ get fun `test should deploy with specified parameters`(
     });
     expect(res).toHaveSuccessfulDeploy({ to: pool.address });
     // Check for proxy deployment
-    val proxyOdd = getProxy(pool.address, validator, false);
-    val proxyEven = getProxy(pool.address, validator, true);
+    val proxyOdd = getProxy(pool.address, validator, true);
+    val proxyEven = getProxy(pool.address, validator, false);
 
-    expect(res).toHaveSuccessfulTx({ from: proxyOdd.address, to: deployer.address });
-    expect(res).toHaveSuccessfulTx({ from: proxyEven.address, to: deployer.address });
-
-    expect(res).toHaveSuccessfulTx({ from: pool.address, to: proxyOdd.address });
-    expect(res).toHaveSuccessfulTx({ from: pool.address, to: proxyEven.address });
+    if ((mainAllowance & 1) > 0) {
+        expect(res).toHaveSuccessfulTx({ from: proxyOdd.address, to: deployer.address });
+        expect(res).toHaveSuccessfulTx({ from: pool.address, to: proxyOdd.address });
+    }
+    if ((mainAllowance & 2) > 0) {
+        expect(res).toHaveSuccessfulTx({ from: proxyEven.address, to: deployer.address });
+        expect(res).toHaveSuccessfulTx({ from: pool.address, to: proxyEven.address });
+    }
 
     expect(res).toHaveSuccessfulTx({ from: pool.address, to: deployer.address });
 
@@ -91,6 +97,7 @@ get fun `test should deploy with specified parameters`(
 
     val validatorsAfter = poolAfter.validators.load();
     expect(validatorsAfter.mainValidatorAddress).toEqual(validator);
+    expect(validatorsAfter.mainValidatorData.load().roundParity as int).toEqual(mainAllowance);
 
     expect(validatorsAfter.maxTonPerValidator).toEqual(boundMax);
     expect(validatorsAfter.minTonPerValidator).toEqual(boundMin);

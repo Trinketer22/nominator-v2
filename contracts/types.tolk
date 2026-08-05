@@ -105,7 +105,7 @@ struct Validator {
     evenProxy: uint256? = null
     oddProxy: uint256? = null
     limit: ValidatorLimit? = null
-    roundParity: RoundAllowance = RoundAllowance.InAllRounds
+    roundParity: RoundAllowance
 }
 
 struct ValidatorLookup {
