@@ -7,19 +7,20 @@ A Tolk-based smart contract protocol for The Open Network (TON) that enables del
 ## Table of Contents
 
 1. [General Principles](#general-principles)
-2. [Architecture Overview](#architecture-overview)
-3. [Configuration Parameters](#configuration-parameters)
-4. [Core Concepts](#core-concepts)
-5. [How Rounds Work](#how-rounds-work)
-6. [Validator Proxy](#validator-proxy)
-7. [Contract Interactions](#contract-interactions)
-8. [Fee Structure](#fee-structure)
-9. [Getters](#getters)
-10. [Security Model](#security-model)
-11. [Known Limitations & Implementation Status](#known-limitations--implementation-status)
-12. [Build & Test](#build--test)
-13. [Scripts](#scripts)
-14. [References](#references)
+2. [Differences from the Original TON Nominator Pool](#differences-from-the-original-ton-nominator-pool)
+3. [Architecture Overview](#architecture-overview)
+4. [Configuration Parameters](#configuration-parameters)
+5. [Core Concepts](#core-concepts)
+6. [How Rounds Work](#how-rounds-work)
+7. [Validator Proxy](#validator-proxy)
+8. [Contract Interactions](#contract-interactions)
+9. [Fee Structure](#fee-structure)
+10. [Getters](#getters)
+11. [Security Model](#security-model)
+12. [Known Limitations & Implementation Status](#known-limitations--implementation-status)
+13. [Build & Test](#build--test)
+14. [Scripts](#scripts)
+15. [References](#references)
 
 ---
 
@@ -50,6 +51,51 @@ The pool itself lives in the **basechain** (workchain 0) for lower fees, but val
 
 ### 5. Halt on Insufficient Liquidity
 If a pending-operation chain cannot be started because the liquid balance is below the startup threshold or cannot cover pending withdrawals, the pool enters a **halted** state. While halted, new validator stakes, owner withdrawals, and all nominator `d`/`w`/`r` operations are blocked. Stake recovery and round updates remain available so a later rotation can retry processing and clear the halt.
+
+---
+
+## Differences from the Original TON Nominator Pool
+
+### For Nominators
+
+| Area | Original TON Nominator Pool | This implementation |
+|------|-----------------------------|---------------------|
+| **Position and rewards** | Stores an address-bound active TON balance and pending deposit balance. Each round's reward is added proportionally to the active balance. | Stores address-bound internal shares priced by `nominatorsAmount / poolSupply`; profit and loss change the share price. Shares are accounting units, **not transferable Jettons or liquid-staking tokens**. |
+| **Reward claims** | Rewards compound, but there is no separate claim operation. | Rewards compound and can be claimed with comment `"r"` without withdrawing principal, subject to `minWithdrawableRewards`. |
+| **Withdrawals** | Comment `"w"` exits the entire position, including pending deposits. Partial withdrawal is unsupported. | Comment `"w"` withdraws all current shares, while `"r"` withdraws rewards. Arbitrary partial-principal withdrawal is unsupported, and `"w"` **does not cancel a pending deposit**, which may enter the pool later. |
+| **Pending operations** | Records requests in the pool and pays them through a later permissionless processing call. New staking is blocked while withdrawals remain. | Uses asynchronous per-user `PayoutItem` contracts at clean round boundaries. Insufficient liquidity can halt deposits, withdrawals, new stakes, and owner withdrawals until recovery and rotation restore progress. |
+| **Admission** | Designed and tested for at most 40 nominators and a recommended 10,000 TON minimum stake. Capacity and minimum stake are immutable. | Configures up to 1,023 nominators, subject to dictionary-depth limits. The owner can update the minimum stake and count limit and can apply an optional deposit whitelist. |
+| **Workchains and deposit cost** | Nominator wallets must be in the basechain. Each deposit has a fixed 1 TON deduction. | Nominator wallets may be in any workchain. `DEPOSIT_GAS` is 0.2 TON, with unused gas normally returned; the pool itself runs in the lower-cost basechain. |
+| **Penalty exposure** | Losses consume the validator's balance first and reach nominators only when that balance is insufficient. | Profit and loss are split between owner equity and nominators by immutable `ownerShare`. The owner reserve is **not first-loss protection**, so nominators can immediately bear their configured loss share. |
+| **Governance** | Nominators can signal on network proposals with `y<HASH>` and `n<HASH>`. | No voting interface is implemented; only `"d"`, `"w"`, and `"r"` nominator comments are accepted. |
+
+### For Validators
+
+| Area | Original TON Nominator Pool | This implementation |
+|------|-----------------------------|---------------------|
+| **Validator set** | One immutable validator wallet per pool. | Up to 32 configured validators, including main. Extra validators can be added, removed, or disabled by the owner. |
+| **Wallet and elector access** | The validator wallet and pool both reside in the masterchain, and the wallet operates the pool directly. | Validator wallets may reside in any workchain. Deterministic stateless proxies in the masterchain forward stake and recovery messages to the elector. |
+| **Round participation** | The single validator submits one pool stake according to the original state machine. | Each validator can be assigned odd, even, or all rounds. An all-round validator can have two concurrent slots through separate parity proxies. |
+| **Stake limits** | Pool-wide immutable minimums and available funds constrain the validator. | Global limits and optional per-validator fixed-TON or proportional-share caps constrain each validator and can be changed by the owner. |
+| **Funds and penalties** | The validator maintains its own balance in the pool. This balance receives commission, funds operations, and absorbs losses before nominators. | Validators have no individual pool balance or first-loss account. Owner equity supplies capitalization, while recovered profit or loss is shared globally according to `ownerShare`. |
+| **Operating costs** | The original documentation estimates about 5 TON per round, paid by the validator. | A configurable `refundBonus` compensates a validator after a sufficiently profitable recovery. Part is borne by owner equity and part reduces profit before it is split with nominators. |
+| **Recovery liveness** | Validator-set updates, recovery, and withdrawal processing can be funded by anyone if the validator disappears. | `UpdateVset` and unrestricted recovery can also be funded by third parties; new stake submission remains validator-only. |
+
+### For the Pool Owner or Operator
+
+The original contract has no separate owner role: its single immutable validator is also the pool operator and economic counterparty. This implementation separates pool governance from validation.
+
+| Area | Original TON Nominator Pool | This implementation |
+|------|-----------------------------|---------------------|
+| **Authority** | The immutable validator wallet submits stakes, adds validator funds, and withdraws funds not owed to nominators. | A separate owner manages pool configuration and owner equity. Validators are limited to staking and recovery operations. |
+| **Configuration** | Validator address, reward share, capacity, and minimum stakes are fixed at deployment. | The owner can manage extra validators, validator limits, nominator minimum/count, whitelist, and `refundBonus`. `ownerShare`, `minWithdrawableRewards`, main validator identity, and round allowances remain immutable. |
+| **Economics** | Positive reward pays immutable `validator_reward_share`; validator funds bear losses first. | Signed profit and loss are allocated by immutable `ownerShare`. A mutable `refundBonus` may reduce distributable profit, so users should monitor current settings. |
+| **Owner withdrawals** | The validator can withdraw its accounted balance and otherwise unallocated funds while preserving nominator liabilities and the storage reserve. | The owner can withdraw only liquid owner equity remaining after nominator liabilities, pending deposits, storage reserve, and punishment capitalization. |
+| **Operational scale** | One masterchain pool serves one validator and a small tested nominator set. | One basechain pool coordinates multiple validators through masterchain proxies and processes large pending sets asynchronously. |
+
+Important similarities remain: positions are tied to the depositing address, rewards compound, withdrawals can be delayed by the validator/elector lifecycle and available liquidity, operational maintenance is still required, and nominators can lose principal after validator penalties. Neither implementation gives nominators a freely transferable liquid-staking asset.
+
+The original limits and behavior above are based on its [official README](https://github.com/ton-blockchain/nominator-pool/blob/2f35c36b5ad662f10fd7b01ef780c3f1949c399d/README.md) and [TON documentation](https://docs.ton.org/nodes/staking/nominator-pools). The original 10,000 TON minimum is a tested recommendation; its official deployment tooling permits lower configured values.
 
 ---
 
@@ -296,7 +342,7 @@ splitBonus = refundBonus - ownerPart
 - On successful `recover_stake_ok`, the pool calculates net profit (recovered amount minus staked amount).
 - The **full `refundBonus`** is sent only when `recovered - splitBonus > staked`. This prevents the shared part from turning the accounted round result negative merely to pay the bonus.
 - The bonus cost is split into two parts:
-  - **Owner-only part (`ownerPart`)**: not deducted from recovered value, so it comes from owner equity.
+  - **Owner-only part (`ownerPart`)**: not deducted from recovered value, so it comes from owner equity. Most of this value is funded by NewStakeOk gas refund.
   - **Shared part (`splitBonus`)**: deducted before profit/loss allocation and therefore shared according to `ownerShare`.
 - If the round was unprofitable (slashed or no profit), no bonus is paid. The validator's overspend on unsuccessful operations must be resolved directly with the pool owner if necessary.
 - `refundBonus` is configured at initialization and can be updated later via `UpdateLimits`.
@@ -756,5 +802,6 @@ BATCH=1 \
 
 - [TON Docs — Tolk Overview](https://docs.ton.org/tolk/overview)
 - [TON Docs — TON Blockchain](https://docs.ton.org/)
-- Original nominator pool and single-nominator pool contracts served as interface and logic references.
+- [Original TON Nominator Pool](https://github.com/ton-blockchain/nominator-pool/tree/2f35c36b5ad662f10fd7b01ef780c3f1949c399d) and single-nominator pool contracts served as interface and logic references.
+- [TON Docs — Nominator Pool Contracts](https://docs.ton.org/nodes/staking/nominator-pools)
 - Liquid staking payout NFT approach adapted for loop-free pending operations.
