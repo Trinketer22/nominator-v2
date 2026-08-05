@@ -42,6 +42,7 @@ fun main() {
         "Main validator address:",
         null,
     );
+    val roundAllowance = roundAllowanceFromEnvOrPrompt();
 
     // Optional per-validator limit for the main validator. "none" means the
     // main validator uses the global limits.
@@ -112,10 +113,11 @@ fun main() {
     println("Pool address:    {}", pool.address);
     println("Owner wallet:     {} ({})", walletName, owner.address);
     println("Main validator:   {}", mainValidator);
+    println("Round allowance:  {}", roundAllowance);
     println("Owner share:      {}/{}", ownerShare, SHARE_BASE);
     println("Init value:       {:gram}", deployValue);
 
-    // SAFETY: ownerShare is range-checked above to fit uint25 (SHARE_BASE = 2^24 - 1).
+    // SAFETY: ownerShare is range-checked above to fit uint25 (SHARE_BASE = 2^24).
     // SAFETY: maxNominators is range-checked above to fit uint10 (0..1023).
     val initMessage = createMessage({
         bounce: false,
@@ -124,7 +126,7 @@ fun main() {
         body: InitPoolMessage {
             queryId: 0,
             mainValidator,
-            roundAllowance: RoundAllowance.InAllRounds,
+            roundAllowance,
             limit: mainValidatorLimit,
             ownerShare: ownerShare as uint25,
             maxTonPerValidator,
@@ -142,10 +144,11 @@ fun main() {
         format(
             "{}{}{}",
             format(
-                "Init pool\n  pool:               {}\n  owner:              {}\n  main validator:     {}\n  validator limit:    {}",
+                "Init pool\n  pool:               {}\n  owner:              {}\n  main validator:     {}\n  round allowance:    {}\n  validator limit:    {}",
                 pool.address,
                 owner.address,
                 mainValidator,
+                roundAllowance,
                 mainValidatorLimit == null
                     ? "none (uses global)"
                     : format("{}", mainValidatorLimit),

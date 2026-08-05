@@ -420,7 +420,7 @@ fun promptNewValidatorAddress(envVar: string, message: string): address {
 fun promptValidatorLimit(): ValidatorLimit? {
     val limitKind = promptStringWithEnvOrSelect(
         "LIMIT_KIND",
-        "Limit type for the main validator:",
+        "Limit type for the validator:",
         ["none", "ton", "share"],
         0,
     );
@@ -439,7 +439,7 @@ fun promptValidatorLimit(): ValidatorLimit? {
     if (maxShare < 0 || maxShare > SHARE_BASE) {
         Assert.fail(format("Max share {} is out of range (0..{})", maxShare, SHARE_BASE));
     }
-    // SAFETY: maxShare is range-checked above to fit uint25 (SHARE_BASE = 2^24 - 1).
+    // SAFETY: maxShare is range-checked above to fit uint25 (SHARE_BASE = 2^24).
     return ValidatorLimitShare { maxShare: maxShare as uint25 };
 }
 
