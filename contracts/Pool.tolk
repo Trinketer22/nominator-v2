@@ -393,7 +393,7 @@ get fun get_max_punishment(stake: int): int {
     val validators = lazy storage.validators.load();
 
     // We don't want to guess the minimum, so if specified is below minimum, minimum is checked
-    stake = min(max(stake, 0), validators.minTonPerValidator);
+    stake = max(max(stake, 0), validators.minTonPerValidator);
 
     // If it is above pool max, it makes sense to throw
     assert(stake <= validators.maxTonPerValidator, ErrorsPool.StakeAboveTheLimit);
