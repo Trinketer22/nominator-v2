@@ -88,6 +88,10 @@ fun Nominator.withdrawShare(
         // Something that is not possible in liquid pools
         self.withdrawalIndex = roundIndex + ROUNDS_DELAY;
         self.pendingWithdrawal += shareCount;
+        // Commit tonAmount immediately
+        if (self.share == 0) {
+            self.tonAmount = 0;
+        }
         val pendingRefund = createMessage({
             bounce: false,
             dest: owner,
