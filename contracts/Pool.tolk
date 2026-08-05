@@ -1131,6 +1131,7 @@ get fun get_nominator_data(nominatorAddress: int): GetNominatorData {
         wc -= 1;
     }
 
+    // Retained for compatability with older pool contract
     throw 86;
 }
 

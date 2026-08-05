@@ -523,15 +523,13 @@ All fees are defined in `contracts/fees.tolk`:
 | `PROXY_MIN_STORAGE` | 10 TON | Storage reserve for each deployed validator proxy. |
 | `DEPOSIT_GAS` | 0.2 TON | Gas constant required on every nominator deposit. This is **not a fee** retained by the owner; it is simply the minimum message value needed to cover the compute and action-phase gas of processing a deposit. The configurable economic gate is `minStake`. |
 | `WITHDRAWAL_GAS` | 0.2 TON | Minimum gas constant required when a withdrawal enters the pending queue (covers the cost of deploying and burning a `PayoutItem`). Direct withdrawals that execute instantly do not incur this constant. |
-| `NEW_STAKE_FEE` | 1 TON | Deduction from the validator's requested stake to cover proxy/elector gas. |
 | `NEW_VALIDATOR_FEE` | 0.1 TON | Gas budget deducted when adding a new validator. |
 | `PAYOUT_ITEM_BALANCE` | 0.05 TON | Forwarded to each PayoutItem on deployment. |
 | `REFUND_THRESHOLD` | 1 TON | Max forwarded TON for various refund/proxy gas buffers. |
 | `MAX_RECOVERY_VALUE` | 1 TON | Cap on the value forwarded from a `RecoverStakeOk` response when relaying recovered stake back to the pool. |
-| `MAX_ROTATION_VALUE` | 1 TON | Reserved cap for value forwarded during round-rotation-related relaying. |
 | `PROXY_INIT_VALUE` | 0.1 TON | Extra value attached on top of `PROXY_MIN_STORAGE` when deploying a validator proxy, to cover init gas. |
 
-In addition, `fees.tolk` defines a set of gas-budget *constants* (in gas units, not TON) used by compute-path checks: `NEW_STAKE_ERROR_GAS`, `RECOVER_STAKE_GAS`, `REFUND_BONUS_GAS`, and `RECOVER_STAKE_OK_GAS`. These are internal compute budgets, not user-facing fees.
+In addition, `fees.tolk` defines a gas-budget *constant* (in gas units, not TON) used by compute-path checks: `RECOVER_STAKE_OK_GAS`. This is an internal compute budget, not a user-facing fee.
 
 ---
 
