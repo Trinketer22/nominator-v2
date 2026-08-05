@@ -809,8 +809,9 @@ fun onInternalMessage(in: InMessage) {
             );
         }
         RecoverStakeUnrestricted => {
+            val maxAmount = min(msg.amount, MAX_RECOVERY_VALUE);
             storage.sendStakeRecovery(
-                msg.amount,
+                maxAmount,
                 in.senderAddress,
                 msg.validator,
                 opcode<RecoverStakeUnrestricted>(),
@@ -818,7 +819,7 @@ fun onInternalMessage(in: InMessage) {
             );
             val minFee = calculateGasFee(BASECHAIN, getGasConsumedAtTheMoment() * 2) +
             in.originalForwardFee +
-            msg.amount;
+            maxAmount;
             // It is not wrapped in try/catch, but i think it's okay
             assert(in.valueCoins >= minFee, ErrorsPool.NotEnoughGas);
         }
