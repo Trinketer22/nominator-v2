@@ -24,8 +24,9 @@ fun toBitIndex(value: int): int {
 }
 
 fun parityToMask(isOdd: bool): int {
-    // 2 + isOdd as int since true is -1???
-    return 2 + (isOdd as int);
+    // Could have done 2 + (isOdd as int);
+    // But that's just reads clearer.
+    return isOdd ? 1 : 2;
 }
 
 fun getMaxPunishmentInt(stake: int): int {
