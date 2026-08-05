@@ -1151,7 +1151,8 @@ get fun get_validator_info(address: address): GetValidatorInfo {
         roundIndex += 1;
     }
     val roundMask = parityToMask(roundIndex % 2 > 0);
-    var stakeNotAvailable = validator.data.isBanned || rotationStatus.roundIsClosed;
+    var stakeNotAvailable = validator.data.isBanned || rotationStatus.roundIsClosed ||
+    storage.halted;
     stakeNotAvailable = stakeNotAvailable || ((roundMask & validator.data.usageState) > 0);
     stakeNotAvailable = stakeNotAvailable || ((roundMask & validator.data.roundParity as int) == 0);
     val stakeLimits = lazy StakingLimits.load();
