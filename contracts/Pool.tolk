@@ -971,6 +971,7 @@ fun onInternalMessage(in: InMessage) {
                                     tonAmount: nmData.tonAmount,
                                     pendingDeposit: nmData.pendingDeposit,
                                     pendingWithdrawal: 0,
+                                    depositIndex: nmData.depositIndex,
                                 },
                             );
                     } else {
