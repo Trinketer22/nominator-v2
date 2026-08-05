@@ -49,6 +49,33 @@ get fun `test simple pool deposit`(nmAddress: address, nmStake: coins) {
     expect(nmAfter.amount).toEqual(nmBefore.amount + additional);
 }
 
+get fun `test existing nominator should be able to deposit in full pool`() {
+    val (_, _validatorSettings, nmSettings) = defaultDeployParams();
+    val (
+        pool,
+        _owner,
+        _notOwner,
+        _validator,
+        _randomValidator,
+        nominators,
+    ) = setupFullyBookedPool();
+
+    val randomNm = nominators.get(random.range(1022));
+    val nmHash = randomNm.getHash();
+
+    val nmBefore = pool.getNominatorData(nmHash);
+    var additional = 0;
+
+    repeat (3) {
+        val randomAmount = random.range(ton("100000")) + nmSettings.minStake + DEPOSIT_GAS;
+        additional += randomAmount - DEPOSIT_GAS;
+        assertPoolDepositInstant(pool, randomNm, randomAmount);
+    }
+
+    val nmAfter = pool.getNominatorData(nmHash);
+    expect(nmAfter.amount).toEqual(nmBefore.amount + additional);
+}
+
 get fun `test should not allow deposits below the minStake + DEPOSIT_GAS`() {
     var (pool, _owner, _notOwner, _validaotr) = setupDeployedPool();
     val testNm = testing.treasury("testnm");

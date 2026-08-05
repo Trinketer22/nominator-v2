@@ -63,7 +63,6 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
     match (msg) {
         DepositMessage => {
             var nominators = lazy self.nominators.load();
-            assert(nominators.nmCount < self.maxNominators, ErrorsPool.TooManyNominators);
             val incommingValue = value - DEPOSIT_GAS; // calculateGasFee(BASECHAIN, DEPOSIT_GAS);
             assert(incommingValue >= nominators.minStake, ErrorsPool.NotEnoughGas);
             if (!nominators.nominatorsWhitelist.isEmpty()) {
@@ -74,11 +73,15 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
             val hasPrevUsage = !prevRound.users.isEmpty();
 
             val retryIdx = self.roundIndex + ROUNDS_DELAY;
+
+            val nmLookup = nominators.poolNominators.get(sender);
+
+            assert(nmLookup.isFound || nominators.nmCount <
+            self.maxNominators, ErrorsPool.TooManyNominators);
             if (self.roundClosed || hasPrevUsage) {
                 var pendingDeposits = nominators.pendingDeposits == null
                     ? PendingOps { isWithdraw: false }
                     : nominators.pendingDeposits.load();
-                val nmLookup = nominators.poolNominators.get(sender);
                 if (nmLookup.isFound) {
                     var oldPending = nmLookup.loadValue();
                     assert(oldPending.depositIndex <=
@@ -109,19 +112,19 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
                     self.poolSupply,
                     self.nominatorsAmount,
                 );
-                val newNominator: Nominator = {
+                var newNominator: Nominator = {
                     tonAmount: incommingValue,
                     share: nmShare,
                     pendingDeposit: 0,
                 };
-                val nmLookup = nominators.poolNominators.addOrGetExisting(sender, newNominator);
 
                 if (nmLookup.isFound) {
                     var oldNm = nmLookup.loadValue();
-                    nominators.poolNominators.set(sender, oldNm.add(newNominator));
+                    newNominator = oldNm.add(newNominator);
                 } else {
                     nominators.nmCount += 1;
                 }
+                nominators.poolNominators.set(sender, newNominator);
 
                 self.poolSupply += nmShare;
                 self.nominatorsAmount += incommingValue;
