@@ -360,7 +360,7 @@ fun Storage.sendStakeRecovery(
             value: actionableValue - calculateGasFee(BASECHAIN, getGasConsumedAtTheMoment() * 2),
             body: RecoverStakeCompat { queryId: mcTimestamp },
         });
-        recoveryStake.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
+        recoveryStake.send(SEND_MODE_REGULAR | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
         reserveGramsOnBalance(
             0,
             RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE | RESERVE_MODE_AT_MOST,

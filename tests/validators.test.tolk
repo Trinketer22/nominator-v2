@@ -1413,7 +1413,7 @@ get fun `test anybody should be able to recover on behalf of the validator at un
     expect(refundTx).toBeNotNull();
     expect(
         getInternalMessageValue(refundTx!.loadInMsg<RecoverStakeCompat>().info).grams as int,
-    ).toBeApproxEqAbs(testValue, ton("0.01"));
+    ).toBeApproxEqAbs(testValue, ton("0.1"));
     expect(res).toHaveSuccessfulTx<RecoverStakeOk>({
         from: address.fromWorkchainAndHash(
             MASTERCHAIN,
