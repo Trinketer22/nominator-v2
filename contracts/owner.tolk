@@ -41,8 +41,7 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
                 newValidator.deployProxy(msg.validator, storage.owner, valueLeft, msg.queryId);
                 val newAdded = validators.validators.addIfNotExists(msg.validator, newValidator);
 
-                assert(newAdded &&
-                msg.validator != validators.mainValidatorAddress, ErrorsPool.ValidatorAlreadyExits);
+                assert(newAdded, ErrorsPool.ValidatorAlreadyExits);
                 validators.activeValidators += 1;
                 assert(validators.activeValidators <= MAX_VALIDATORS, ErrorsPool.TooManyValidators);
 
@@ -74,8 +73,6 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
             try {
                 assert(sender == storage.owner, ErrorsPool.NotOwner);
                 var validators = lazy storage.validators.load();
-                assert(msg.validator !=
-                validators.mainValidatorAddress, ErrorsPool.MainValidatorCantBeRemoved);
                 val validatorLookup = validators.validators.deleteAndGetDeleted(msg.validator);
                 assert(validatorLookup.isFound, ErrorsPool.ValidatorNotFound);
                 var validatorData = validatorLookup.loadValue();
@@ -175,7 +172,7 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
                             ErrorsPool.ValidatorNotFound,
                         )!;
                         validators.assertValidatorLimit(msg.limit.limit);
-                        validatorData.data.limit = msg.limit.limit;
+                        validatorData.limit = msg.limit.limit;
                         validators.updateValidatorByAddress(msg.limit.validator, validatorData);
                     }
                     GlobalNominatorsLimit => {
