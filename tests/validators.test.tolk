@@ -109,14 +109,11 @@ get fun `test validator allowed for only even/odd rounds, should only stake in a
 
 get fun `test only added validator could stake`() {
     val (elector, stakes, _limits) = setupElector();
-    val (pool, _owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(20);
+    val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(20);
 
     val minStake = stakes.minStake * 2;
 
-    val poolBefore = pool.getPoolData();
-    val validators = lazy poolBefore.validators.load();
-
-    val testValidator = getDifferentAddress(validators.mainValidatorAddress);
+    val testValidator = getDifferentAddress(validator);
 
     val elections = announceElections(elector);
     assertNewStakeFailed(
@@ -931,23 +928,19 @@ get fun `test anybody could rotate vset for all the validators`() {
     );
     var curTime = testing.getNow();
 
-    val poolBefore = pool.getPoolData();
-    val validators = poolBefore.validators.load();
-    var _mainBefore = validators.mainValidatorData.load();
     var res = pool.sendUpdateVset(notOwner.address, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
 
     expect(res).toHaveSuccessfulTx<UpdateVset>({ from: notOwner.address, to: pool.address });
 
     var poolAfter = pool.getPoolData();
     var validatorsAfter = poolAfter.validators.load();
-    var mainAfter = validatorsAfter.mainValidatorData.load();
     expect(validatorsAfter.vsetHash).toEqual(newSetHash >> 128);
 
     var prevRound = validatorsAfter.prevRound.load();
     expect(prevRound.roundIndex).toEqual(0);
     expect(prevRound).toRotate({
         pool: pool.address,
-        address: validators.mainValidatorAddress,
+        address: validator,
         vsetHash: newSetHash,
         prevCount: 0,
         time: curTime,
@@ -981,7 +974,6 @@ get fun `test anybody could rotate vset for all the validators`() {
     expect(res).toHaveSuccessfulTx<UpdateVset>({ from: notOwner.address, to: pool.address });
     poolAfter = pool.getPoolData();
     validatorsAfter = poolAfter.validators.load();
-    mainAfter = validators.mainValidatorData.load();
     val curRound = validatorsAfter.curRound.load();
     prevRound = validatorsAfter.prevRound.load();
 
@@ -1033,7 +1025,7 @@ get fun `test anybody could rotate vset with main validator only`() {
     expect(prevRound.roundIndex).toEqual(0);
     expect(prevRound).toRotate({
         pool: pool.address,
-        address: validatorsAfter.mainValidatorAddress,
+        address: validator,
         vsetHash: newSetHash,
         prevCount: 0,
         time: curTime,
@@ -1948,7 +1940,7 @@ get fun `test new stake error from elector should be handled appropriately (FULL
     // Let's make a fully staked 32 slots
     while (lookup.isFound) {
         val valAddress = lookup.getKey();
-        if (valAddress != randomValidator) {
+        if (valAddress != randomValidator && valAddress != validator) {
             val _valData = lookup.loadValue();
             assertPoolNewStake(valAddress, pool, elector, elections, stakes.minStake * 2);
         }

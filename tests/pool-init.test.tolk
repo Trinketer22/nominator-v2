@@ -96,8 +96,8 @@ get fun `test should deploy with specified parameters`(
     expect(poolAfter.ownerShare).toEqual(boundedShare);
 
     val validatorsAfter = poolAfter.validators.load();
-    expect(validatorsAfter.mainValidatorAddress).toEqual(validator);
-    expect(validatorsAfter.mainValidatorData.load().roundParity as int).toEqual(mainAllowance);
+    val validatorAfter = validatorsAfter.validators.mustGet(validator, 42)!;
+    expect(validatorAfter.roundParity as int).toEqual(mainAllowance);
 
     expect(validatorsAfter.maxTonPerValidator).toEqual(boundMax);
     expect(validatorsAfter.minTonPerValidator).toEqual(boundMin);

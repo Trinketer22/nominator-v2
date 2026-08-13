@@ -2104,7 +2104,7 @@ get fun `test in closed round, withdraw should become pending and be fullfilled 
         owner,
         _notOwner,
         validator,
-        randomValidator,
+        _randomValidator,
         nominators,
     ) = setupFullyBookedPool();
 
@@ -2117,7 +2117,9 @@ get fun `test in closed round, withdraw should become pending and be fullfilled 
     // Let's make a fully staked 32 slots
     while (valLookup.isFound) {
         val valAddress = valLookup.getKey();
-        assertPoolNewStake(valAddress, pool, elector, elections, stakes.minStake * 2);
+        if (valAddress != validator) {
+            assertPoolNewStake(valAddress, pool, elector, elections, stakes.minStake * 2);
+        }
         valLookup = validatorsInitial.validators.iterateNext(valLookup);
     }
     assertPoolNewStake(validator, pool, elector, elections, stakes.minStake * 2);
@@ -2131,7 +2133,9 @@ get fun `test in closed round, withdraw should become pending and be fullfilled 
     // Let's make a fully staked 32 slots
     while (valLookup.isFound) {
         val valAddress = valLookup.getKey();
-        assertPoolNewStake(valAddress, pool, elector, elections, stakes.minStake * 2);
+        if (valAddress != validator) {
+            assertPoolNewStake(valAddress, pool, elector, elections, stakes.minStake * 2);
+        }
         valLookup = validatorsInitial.validators.iterateNext(valLookup);
     }
     assertPoolNewStake(validator, pool, elector, elections, stakes.minStake * 2);
@@ -2177,18 +2181,20 @@ get fun `test in closed round, withdraw should become pending and be fullfilled 
 
     while (valLookup.isFound) {
         val valAddress = valLookup.getKey();
-        val res = waitAndRecoverStake(pool, valAddress, elector.address);
+        if (valAddress != validator) {
+            val res = waitAndRecoverStake(pool, valAddress, elector.address);
 
-        val stakeReturnedTx = res.findTransaction<StakeReturned>({ from: pool.address, to: valAddress });
-        expect(stakeReturnedTx).toBeNotNull();
+            val stakeReturnedTx = res.findTransaction<StakeReturned>({ from: pool.address, to: valAddress });
+            expect(stakeReturnedTx).toBeNotNull();
 
-        val stakeReturned = stakeReturnedTx!.loadBody<StakeReturned>();
-        val stakeProfit = stakeReturned.returned - stakeReturned.used;
-        val ownerProfitFromStake = mulDivFloor(stakeProfit, poolBefore.ownerShare, SHARE_BASE);
-        val nmProfitFromStake = stakeProfit - ownerProfitFromStake;
-        totalProfit += stakeProfit;
-        ownerProfit += ownerProfitFromStake;
-        nominatorsProfit += nmProfitFromStake;
+            val stakeReturned = stakeReturnedTx!.loadBody<StakeReturned>();
+            val stakeProfit = stakeReturned.returned - stakeReturned.used;
+            val ownerProfitFromStake = mulDivFloor(stakeProfit, poolBefore.ownerShare, SHARE_BASE);
+            val nmProfitFromStake = stakeProfit - ownerProfitFromStake;
+            totalProfit += stakeProfit;
+            ownerProfit += ownerProfitFromStake;
+            nominatorsProfit += nmProfitFromStake;
+        }
         valLookup = validatorsInitial.validators.iterateNext(valLookup);
     }
     val res = waitAndRecoverStake(pool, validator, elector.address);
