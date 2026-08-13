@@ -18,18 +18,22 @@ fun main() {
         pool,
         "VALIDATOR_ADDRESS",
         "Select validator to remove:",
-        false,
     );
+    if (validator == null) {
+        println("Pool {} has no registered validators.", pool.address);
+        return;
+    }
+    val validatorAddr = validator!;
     val queryId = (env<int>("QUERY_ID") ?? 1) as uint64;
     val value = promptCoins("MSG_VALUE", "Value to send with RemoveValidator (TON):", "1");
 
-    println("Removing validator {} from pool {}", validator, pool.address);
+    println("Removing validator {} from pool {}", validatorAddr, pool.address);
 
     confirmSend(
         format(
             "Remove validator\n  pool:       {}\n  validator:  {}\n  value:      {:gram}",
             pool.address,
-            validator,
+            validatorAddr,
             value,
         ),
     );
@@ -37,7 +41,7 @@ fun main() {
     val res = pool.sendRemoveValidator(
         owner.address,
         queryId,
-        validator,
+        validatorAddr,
         { value },
     );
 
@@ -45,15 +49,13 @@ fun main() {
         Assert.fail("RemoveValidator message was not accepted by network");
     }
 
-    // Read the post-remove state from the persisted validators cell. The main
-    // validator cannot be removed (the contract rejects it with
-    // MainValidatorCantBeRemoved), so only extra validators are relevant here.
+    // Read the post-remove state from the persisted validators map.
     // We avoid get_validator_info because it calls rotateRound →
     // blockchain.configParam(34), which is unreliable off-chain (DEFAULT_CONFIG
     // in acton script) and may throw, masking the actual post-remove state.
     val poolData = pool.getPoolData();
     val validators = lazy poolData.validators.load();
-    val lookup = validators.validators.get(validator);
+    val lookup = validators.validators.get(validatorAddr);
 
     if (lookup.isFound) {
         val rec = lookup.loadValue();
@@ -61,16 +63,16 @@ fun main() {
             Assert.fail(
                 format(
                     "Validator {} is still present and not banned after RemoveValidator",
-                    validator,
+                    validatorAddr,
                 ),
             );
         }
         println(
             "Validator {} is banned (had outstanding stake); will be removed after recovery.",
-            validator,
+            validatorAddr,
         );
     } else {
-        println("OK: validator {} was removed from pool {}", validator, pool.address);
+        println("OK: validator {} was removed from pool {}", validatorAddr, pool.address);
     }
 
     // EMUL-TEST-ONLY: persist emulator state so the next `acton script` invocation

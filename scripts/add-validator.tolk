@@ -59,9 +59,9 @@ fun main() {
 
     expectValidatorPresent(pool, validator);
 
-    // Read the validator's roundParity from the persisted validators cell
-    // (accounting for the main validator) instead of get_validator_info, which
-    // is unreliable off-chain due to configParam(34) dependency.
+    // Read the validator's roundParity from the persisted validators map
+    // instead of get_validator_info, which is unreliable off-chain due to
+    // configParam(34) dependency.
     val rec = lookupValidatorRecord(pool, validator);
     if (rec == null) {
         Assert.fail(

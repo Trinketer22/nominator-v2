@@ -92,15 +92,14 @@ fun printPoolInfo(pool: Pool) {
     // Persisted validators cell info — read directly from get_pool_data.
     val validators = lazy data.validators.load();
     println("--- Validators cell (persisted) ---");
-    println("Main validator:    {}", validators.mainValidatorAddress);
     println("vsetHash (>>128):  {}", validators.vsetHash);
     println("Active validators: {}", validators.activeValidators);
     println("Active slots:      {}", validators.activeSlots);
     println("Stake used:        {:gram}", validators.stakeUsed);
     if (validators.validators.isEmpty()) {
-        println("Extra validators:  none");
+        println("Validators:        none");
     } else {
-        println("Extra validators:");
+        println("Validators:");
         var valIter = validators.validators.findFirst();
         while (valIter.isFound) {
             val valAddr = valIter.getKey();
@@ -149,17 +148,11 @@ fun printValidatorInfo(pool: Pool, validator: address, poolData: Storage) {
     val validators = lazy poolData.validators.load();
 
     // Look up the validator in the persisted validators map to get proxy hashes.
-    // The validator can be the main validator or a regular one.
     var valData: Validator?;
     valData = null;
-    if (validator == validators.mainValidatorAddress) {
-        val mainData = lazy validators.mainValidatorData.load();
-        valData = mainData;
-    } else {
-        val valLookup = validators.validators.get(validator);
-        if (valLookup.isFound) {
-            valData = valLookup.loadValue();
-        }
+    val valLookup = validators.validators.get(validator);
+    if (valLookup.isFound) {
+        valData = valLookup.loadValue();
     }
 
     println("=== Validator {} ===", validator);
@@ -274,12 +267,16 @@ fun main() {
 
     if (showValidator) {
         val poolData = pool.getPoolData();
-        var validator: address = poolData.validators.load().mainValidatorAddress;
+        var validator: address;
         if (validatorEnv != null) {
             validator = validatorEnv;
         } else {
-            // Build a picker from the known validators in the persisted cell.
-            val (addresses, options) = collectValidatorOptions(pool, true);
+            // Build a picker from the known validators in the persisted map.
+            val (addresses, options) = collectValidatorOptions(pool);
+            if (options.size() == 0) {
+                println("Pool {} has no registered validators.", pool.address);
+                return;
+            }
             val choice = select("Select validator:", options, 0);
             var foundIdx = -1;
             var idx = 0;
