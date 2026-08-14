@@ -788,7 +788,7 @@ get fun `test stake profit smaller than refundBonus should not award bonus`() {
 
 get fun `test deep losses should put pool nm operations into insolvent state`() {
     val (elector, stakes, limits) = setupElector();
-    val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
+    val (pool, owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
 
     runRound(
         pool,
@@ -896,6 +896,19 @@ get fun `test deep losses should put pool nm operations into insolvent state`() 
         initialBalance: testing.getAccountBalance(
             pool.address,
         ),
+    });
+    val ownerRes = pool.sendOwnerWithdrawal(
+        owner.address,
+        DEFAULT_QUERY_ID,
+        ton("1"),
+        { value: DEFAULT_MSG_VALUE },
+    );
+    expect(ownerRes).toHaveRefund<OwnerWithdrawal>({
+        from: pool.address,
+        to: owner.address,
+        previousState: stateBefore,
+        initialBalance: testing.getAccountBalance(pool.address),
+        error: ErrorsPool.Insolvent,
     });
     // Since owner share got hit, new stake should hit OwnerShareIsUndercapitalized
     val elections = announceElections(elector);

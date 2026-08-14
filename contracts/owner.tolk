@@ -120,6 +120,7 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
                 POOL_MIN_STORAGE;
 
                 val totalBalance = availableBalance + validators.stakeUsed;
+                assert(totalBalance > storage.nominatorsAmount, ErrorsPool.Insolvent);
 
                 val ownerShare = totalBalance - storage.nominatorsAmount -
                 getMaxPunishmentInt(validators.minTonPerValidator) * validators.activeSlots;
