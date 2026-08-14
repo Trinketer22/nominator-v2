@@ -50,8 +50,6 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
         { throwIfOpcodeDoesNotMatch: ErrorsPool.InvalidMessage },
     );
 
-    assert(!self.halted, ErrorsPool.PoolIsHalted);
-
     var validators = self.validators.load();
     val totalBalance = contract.getOriginalBalance() - value - self.pendingDeposits -
     POOL_MIN_STORAGE +
@@ -167,7 +165,7 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
                 sender,
                 nominatorData.share,
                 shareValue,
-                self.roundClosed,
+                self.roundClosed || self.pendingWithdrawals > 0,
                 self.roundIndex,
                 value,
                 nominators.pendingWithdrawals,
@@ -215,7 +213,7 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
                 sender,
                 shareDelta,
                 rewardAmount,
-                self.roundClosed,
+                self.roundClosed || self.pendingWithdrawals > 0,
                 self.roundIndex,
                 value,
                 nominators.pendingWithdrawals,

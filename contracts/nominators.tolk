@@ -39,7 +39,7 @@ fun Nominator.withdrawShare(
     owner: address,
     shareCount: coins,
     shareValue: coins,
-    roundClosed: bool,
+    shouldGoPending: bool,
     roundIndex: int,
     msgValue: coins,
     pending: Cell<PendingOps>?,
@@ -66,7 +66,7 @@ fun Nominator.withdrawShare(
     val hasAnyPending = (self.pendingWithdrawal | self.pendingDeposit) > 0;
 
     // 0 case can only be withdrawn in pending mode again
-    if (roundClosed || availableBalance < shareValue || hasAnyPending) {
+    if (shouldGoPending || availableBalance < shareValue || hasAnyPending) {
         assert(msgValue >= WITHDRAWAL_GAS, ErrorsPool.NotEnoughGas);
         // Means all the expenses are out of incommingValue
         reserveGramsOnBalance(
