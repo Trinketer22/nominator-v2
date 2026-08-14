@@ -78,7 +78,7 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
             self.maxNominators, ErrorsPool.TooManyNominators);
             if (self.roundClosed || hasPrevUsage) {
                 var pendingDeposits = nominators.pendingDeposits == null
-                    ? PendingOps { isWithdraw: false }
+                    ? PendingOps { isWithdraw: false, roundIndex: self.roundIndex }
                     : nominators.pendingDeposits.load();
                 if (nmLookup.isFound) {
                     var oldPending = nmLookup.loadValue();
@@ -101,7 +101,7 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
                         );
                     nominators.nmCount += 1;
                 }
-                pendingDeposits.addPending(sender, self.roundIndex);
+                pendingDeposits.addPending(sender);
                 nominators.pendingDeposits = pendingDeposits.toCell();
                 self.pendingDeposits += incommingValue;
             } else {

@@ -79,8 +79,8 @@ fun onInternalMessage(in: InMessage) {
                 owner: msg.owner,
                 data: ({
                     // Not really necessary, but for additional entropy sake
-                    roundIndex: msg.roundIndex,
-                    isWithdrawal: msg.isWithdrawal,
+                    roundIndex: storage.data.roundIndex,
+                    isWithdrawal: storage.data.isWithdrawal,
                     pool: storage.data.pool,
                     index: storage.data.index,
                     prev: msg.prev,

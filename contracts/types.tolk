@@ -123,6 +123,7 @@ struct PendingOps {
     next: address? = null
     nextStateInit: Cell<StateInit>? = null
     index: uint64 = 0
+    roundIndex: uint64
     isWithdraw: bool
 }
 
