@@ -465,6 +465,7 @@ fun assertDelayedOperation(
     val poolBefore = pool.getPoolData();
     val nominators = poolBefore.nominators.load();
     var expectedIndex = 1;
+    var roundIndex: int? = null;
     var operations: PendingOps? = null;
     var operationDelta: int;
     val rawLookup = nominators.poolNominators.get((nm));
@@ -495,6 +496,7 @@ fun assertDelayedOperation(
         if (nominators.pendingWithdrawals != null) {
             operations = nominators.pendingWithdrawals.load();
             expectedIndex = operations.index + 1;
+            roundIndex = operations.roundIndex;
         }
     } else {
         if (tonAmount == 0) {
@@ -507,6 +509,7 @@ fun assertDelayedOperation(
         if (nominators.pendingDeposits != null) {
             operations = nominators.pendingDeposits.load();
             expectedIndex = operations.index + 1;
+            roundIndex = operations.roundIndex;
         }
     }
 
@@ -527,13 +530,16 @@ fun assertDelayedOperation(
     }
 
     val poolAfter = pool.getPoolData();
+    if(roundIndex == null) {
+        roundIndex = poolAfter.roundIndex;
+    }
     val newPayoutState = AutoDeployAddress {
         stateInit: ContractState {
             data: ItemStorageNotInitialized {
                 data: StaticData {
                     pool: pool.address,
                     index: expectedIndex,
-                    roundIndex: poolAfter.roundIndex,
+                    roundIndex: roundIndex,
                     isWithdrawal,
                     next: null,
                     prev: null,

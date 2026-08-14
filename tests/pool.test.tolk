@@ -1011,6 +1011,7 @@ get fun `test pool should halt if withdrawals can't be processed`() {
 
     poolAfter = pool.getPoolData();
     expect(poolAfter.halted).toBeTrue();
+    expect(poolAfter.roundClosed).toBeFalse();
     expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
 
     assertNewStakeFailed(
@@ -1024,16 +1025,22 @@ get fun `test pool should halt if withdrawals can't be processed`() {
 
     // Now if others want out, they can't till the pool unhalts
 
-    val stateBefore = getAccountData(pool.address);
+    // Witdhrawals should go pending
+    assertDelayedOperation(pool, simpleFolk.address, true);
+    /*
     res = pool.sendTextComment(simpleFolk.address, "w".beginParse(), { value: ton("1") });
     expect(
         res,
     ).toHaveRefund<TextComment>({ from: pool.address, to: simpleFolk.address, error: ErrorsPool.PoolIsHalted, previousState: stateBefore });
+    */
 
     // And no one should be able to deposit either
 
     val depositor = testing.treasury("Depositor");
 
+    // Deposit goes pending because the round rotated (hasPrevUsage), even while halted
+    assertDelayedOperation(pool, depositor.address, false, smallDepo);
+    /*
     res = pool.sendTextComment(
         depositor.address,
         "d".beginParse(),
@@ -1042,12 +1049,14 @@ get fun `test pool should halt if withdrawals can't be processed`() {
     expect(
         res,
     ).toHaveRefund<TextComment>({ from: pool.address, to: depositor.address, error: ErrorsPool.PoolIsHalted, previousState: stateBefore });
+    */
 
-    // And no one should be able to collect rewards either
+    val stateBefore = getAccountData(pool.address);
+    // Key change here that it is not rejected by halted state anymore
     res = pool.sendTextComment(simpleFolk.address, "r".beginParse(), { value: ton("1") });
     expect(
         res,
-    ).toHaveRefund<TextComment>({ from: pool.address, to: simpleFolk.address, error: ErrorsPool.PoolIsHalted, previousState: stateBefore });
+    ).toHaveRefund<TextComment>({ from: pool.address, to: simpleFolk.address, error: ErrorsPool.RewardIsBelowMinimal, previousState: stateBefore });
 
     // And owner shouldn't be able to withdraw either
     res = pool.sendOwnerWithdrawal(owner.address, DEFAULT_QUERY_ID, ton("1"), { value: ton("1") });
@@ -1077,10 +1086,10 @@ get fun `test pool should halt if withdrawals can't be processed`() {
         },
     });
 
-    // Deposits work again
+    // Withdrawals work again
+    asssertSimpleWithdawal(pool, depositor.address);
+    // Deposits too
     assertPoolDepositInstant(pool, depositor.address, smallDepo * 2);
-    // Withdrawals too
-    asssertSimpleWithdawal(pool, simpleFolk.address);
 
     // Most importantly new stake
     elections = announceElections(elector);
