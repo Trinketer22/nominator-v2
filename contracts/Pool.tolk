@@ -78,7 +78,10 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
             self.maxNominators, ErrorsPool.TooManyNominators);
             if (self.roundClosed || hasPrevUsage) {
                 var pendingDeposits = nominators.pendingDeposits == null
-                    ? PendingOps { isWithdraw: false, roundIndex: self.roundIndex }
+                    ? PendingOps {
+                        isWithdraw: false,
+                        roundIndex: self.roundIndex,
+                    }
                     : nominators.pendingDeposits.load();
                 if (nmLookup.isFound) {
                     var oldPending = nmLookup.loadValue();

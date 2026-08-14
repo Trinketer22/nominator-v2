@@ -530,7 +530,7 @@ fun assertDelayedOperation(
     }
 
     val poolAfter = pool.getPoolData();
-    if(roundIndex == null) {
+    if (roundIndex == null) {
         roundIndex = poolAfter.roundIndex;
     }
     val newPayoutState = AutoDeployAddress {

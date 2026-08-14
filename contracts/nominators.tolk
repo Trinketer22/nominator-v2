@@ -76,7 +76,10 @@ fun Nominator.withdrawShare(
         var pendingWithdrawals: PendingOps;
 
         if (pending == null) {
-            pendingWithdrawals = PendingOps { isWithdraw: true, roundIndex  };
+            pendingWithdrawals = PendingOps {
+                isWithdraw: true,
+                roundIndex,
+            };
         } else {
             pendingWithdrawals = pending.load();
         }
