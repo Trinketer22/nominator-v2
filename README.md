@@ -50,7 +50,7 @@ The pool itself lives in the **basechain** (workchain 0) for lower fees, but val
 - Round parity (odd/even) allows a validator to have up to two proxies, enabling staggered recovery/staking windows. The number of proxies depends on the validator's round allowance: one proxy for odd-only or even-only, two for all rounds.
 
 ### 5. Halt on Insufficient Liquidity
-If a pending-operation chain cannot be started because the liquid balance is below the startup threshold or cannot cover pending withdrawals, the pool enters a **halted** state. While halted, new validator stakes, owner withdrawals, and all nominator `d`/`w`/`r` operations are blocked. Stake recovery and round updates remain available so a later rotation can retry processing and clear the halt.
+If a pending-operation chain cannot be started because the liquid balance is below the startup threshold or cannot cover pending withdrawals, the pool enters a **halted** state. While halted, new validator stakes and owner withdrawals are blocked. Nominator operations are not rejected: withdrawals and reward claims are routed to pending mode (pending withdrawals remain outstanding throughout the halt), and deposits follow normal round-based logic. Stake recovery and round updates remain available so a later rotation can retry processing and clear the halt.
 
 ---
 
@@ -71,7 +71,7 @@ Critical differences are:
 | **Position and rewards** | Stores an address-bound active TON balance and pending deposit balance. Each round's reward is added proportionally to the active balance. | Stores address-bound internal shares priced by `nominatorsAmount / poolSupply`; profit and loss change the share price. Shares are accounting units, **not transferable Jettons or liquid-staking tokens**. |
 | **Reward claims** | Rewards compound, but there is no separate claim operation. | Rewards compound and can be claimed with comment `"r"` without withdrawing principal, subject to `minWithdrawableRewards` limit. |
 | **Withdrawals** | Comment `"w"` exits the entire position, including pending deposits. Partial withdrawal is unsupported. | Comment `"w"` withdraws all current shares, while `"r"` withdraws rewards. Arbitrary partial-principal withdrawal is unsupported, and `"w"` **does not cancel a pending deposit**, which may enter the pool later. |
-| **Pending operations** | Records requests in the pool and pays them through a later permissionless processing call. New staking is blocked while withdrawals remain. | Uses asynchronous per-user `PayoutItem` contracts at clean round boundaries. Insufficient liquidity can halt deposits, withdrawals, new stakes, and owner withdrawals until recovery and rotation restore progress. |
+| **Pending operations** | Records requests in the pool and pays them through a later permissionless processing call. New staking is blocked while withdrawals remain. | Uses asynchronous per-user `PayoutItem` contracts at clean round boundaries. Insufficient liquidity can halt new stakes and owner withdrawals until recovery and rotation restore progress; nominator withdrawals/rewards are routed to pending mode. |
 | **Admission** | Designed and tested for at most 40 nominators and a recommended 10,000 TON minimum stake. Capacity and minimum stake are immutable. | Configures up to 1,023 nominators, subject to dictionary-depth limits. The owner can update the minimum stake and count limit and can apply an optional deposit whitelist. |
 | **Workchains and deposit cost** | Nominator wallets must be in the masterchain. Each deposit has a fixed 1 TON deduction. | Nominator wallets may be in any workchain. `DEPOSIT_GAS` is 0.2 TON, with unused gas normally returned; the pool itself runs in the lower-cost basechain. |
 | **Penalty exposure** | Losses consume the validator's balance first and reach nominators only when that balance is insufficient. | Profit and loss are split between owner equity and nominators by immutable `ownerShare`. The owner reserve is **not first-loss protection**, so nominators can immediately bear their configured loss share. |
@@ -327,7 +327,7 @@ The validator stays registered but cannot stake. Raise the share limit above 0 t
 To avoid unbounded map iteration inside a single transaction:
 - **Pending deposits** and **pending withdrawals** are materialized as linked **PayoutItem** contracts.
 - At round rotation, the pool triggers a chain of burns; each `PayoutItem` sends a `PayoutBurnNotification` back to the pool, which then finalizes the deposit/withdrawal one by one across multiple transactions.
-- If insufficient liquidity prevents a chain from starting, the pool halts and a later rotation retries processing.
+- If insufficient liquidity prevents a chain from starting, the pool halts; nominator withdrawals and rewards requested during the halt are queued as pending, and a later rotation retries processing.
 
 ### Punishment / Slashing Reserve
 The pool requires owner equity to participate in validator risk. Before each `new_stake`, after counting the prospective slot, it checks:
@@ -484,7 +484,7 @@ When recovery empties the affected round, `RecoverStakeOk` sends an asynchronous
 Whenever `UpdateVset` completes a clean rotation, including the asynchronous self-message scheduled after a round-ending recovery, the pool checks for pending nominator deposits and withdrawals:
 - If `pendingDeposits > 0` or `pendingWithdrawals > 0`, the pool loads the `NominatorsData` and processes them.
 - This results in `halted = true` when liquid balance is below the payout-chain startup threshold or cannot cover pending withdrawals.
-- While halted, new validator stakes, all nominator `d`/`w`/`r` operations, and owner withdrawals are blocked. Stake recovery and `UpdateVset` remain available.
+- While halted, new validator stakes and owner withdrawals are blocked. Nominator withdrawals and reward claims are routed to pending mode (pending withdrawals stay outstanding throughout the halt). Deposits follow normal round-based logic. Stake recovery and `UpdateVset` remain available.
 
 ---
 
@@ -636,7 +636,7 @@ Before processing nominator deposits/withdrawals, the pool verifies that its **p
 If a `new_stake` message bounces (e.g., proxy frozen or elector rejection), the usage record is automatically reversed and the validator's locked funds are released.
 
 ### Halt / Graceful Degradation
-If liquidity prevents pending processing from starting, the pool sets `halted = true`. A later rotation retries processing; asynchronous payout notifications may still be in flight when the halt clears.
+If liquidity prevents pending processing from starting, the pool sets `halted = true`. While halted, new validator stakes and owner withdrawals are blocked; nominator withdrawals and reward claims are routed to pending mode. A later rotation retries processing; asynchronous payout notifications may still be in flight when the halt clears.
 
 ---
 

@@ -112,6 +112,7 @@ pending_ops$_
   next:MsgAddressIntOrNone
   next_state_init:(Maybe ^Cell)
   index:uint64
+  round_index:uint64
   is_withdraw:Bool
 = PendingOps;
 
