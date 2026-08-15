@@ -1206,6 +1206,82 @@ get fun `test halted should not be able to lift with excessive value attached to
     expect(poolAfter.roundClosed).toBeFalse();
 }
 
+get fun `test halted should not be able to lift with excessive value attached to reward withdrawal`() {
+    val (elector, stakes, limits) = setupElector();
+
+    var (pool, owner, _notOwner, validator) = setupDeployedPool();
+    val fatNm = testing.treasury("FatCat");
+    val simpleFolk = testing.treasury("peasant");
+    var lagreDepo = ton("100000");
+    var smallDepo = lagreDepo / 10;
+
+    assertPoolDepositInstant(pool, fatNm.address, lagreDepo);
+    assertPoolDepositInstant(pool, simpleFolk.address, smallDepo);
+    lagreDepo -= DEPOSIT_GAS;
+    val stake = lagreDepo / 2;
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+        stake,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+        stake,
+    );
+
+    var res = waitAndRecoverStake(pool, validator, elector.address);
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+
+    // acrued some reward
+    expect(pool.getNominatorData(simpleFolk.address.getHash()).reward).toBeGreater(0);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+        stake,
+    );
+    res = pool.sendTextComment(
+        fatNm.address,
+        "w".beginParse(),
+        { value: WITHDRAWAL_GAS },
+    );
+    var poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
+
+    res = waitAndRecoverStake(pool, validator, elector.address);
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+
+    poolAfter = pool.getPoolData();
+    expect(poolAfter.halted).toBeTrue();
+    expect(poolAfter.roundClosed).toBeFalse();
+
+    runElections(elector, stakes, limits);
+
+    val excessiveValue = lagreDepo * 2;
+    res = pool.sendTextComment(simpleFolk.address, "r".beginParse(), { value: excessiveValue });
+    poolAfter = pool.getPoolData();
+    expect(poolAfter.halted).toBeTrue();
+    // Round closed again, but halted is not lifted
+    expect(poolAfter.roundClosed).toBeTrue();
+}
+
 get fun `test deposit should be able to rotate round if vset is changed`() {
     val (_elector, stakes, _limits) = setupElector();
     val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
