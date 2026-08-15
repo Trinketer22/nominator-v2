@@ -823,7 +823,7 @@ fun onInternalMessage(in: InMessage) {
         RecoverStakeUnrestricted => {
             val maxAmount = min(msg.amount, MAX_RECOVERY_VALUE);
             storage.sendStakeRecovery(
-                maxAmount,
+                in.valueCoins,
                 in.senderAddress,
                 msg.validator,
                 opcode<RecoverStakeUnrestricted>(),
