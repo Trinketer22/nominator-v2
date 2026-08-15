@@ -55,7 +55,7 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
     POOL_MIN_STORAGE +
     validators.stakeUsed;
     assert(totalBalance > self.nominatorsAmount, ErrorsPool.Insolvent);
-    self.finalizeRound(validators.rotateRoundQuick(self.roundIndex));
+    self.finalizeRound(validators.rotateRoundQuick(self.roundIndex), value);
     self.validators = validators.toCell();
 
     match (msg) {
@@ -237,7 +237,7 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
     }
 }
 
-fun Storage.finalizeRound(mutate self, rotationStatus: RotationStatus): int {
+fun Storage.finalizeRound(mutate self, rotationStatus: RotationStatus, msgValue: int): int {
     self.roundClosed = rotationStatus.roundIsClosed;
     var sentTotal = 0;
     if (rotationStatus.roundRotated) {
@@ -257,7 +257,7 @@ fun Storage.finalizeRound(mutate self, rotationStatus: RotationStatus): int {
         if ((self.pendingDeposits | self.pendingWithdrawals) > 0) {
             var nominators = lazy self.nominators.load();
             val pendingStatus = nominators.processPending(
-                contract.getOriginalBalance() - POOL_MIN_STORAGE,
+                contract.getOriginalBalance() - msgValue - POOL_MIN_STORAGE,
                 self.poolSupply,
                 self.nominatorsAmount,
                 self.pendingDeposits,
@@ -318,7 +318,7 @@ fun Storage.sendStakeRecovery(
     try {
         var validators = lazy self.validators.load();
 
-        self.finalizeRound(validators.rotateRound(validator, self.roundIndex));
+        self.finalizeRound(validators.rotateRound(validator, self.roundIndex), inValue);
         // It's ok for roundIndex to go negative, since -1 has LSB set to true.
         var roundBitIdx = toBitIndex(self.roundIndex - 1);
         val validatorData = validators.getValidatorByAddress(
@@ -555,8 +555,15 @@ fun onInternalMessage(in: InMessage) {
         UpdateVset => {
             var validators = storage.validators.load();
             val status = validators.rotateRound(in.senderAddress, storage.roundIndex);
-            storage.finalizeRound(status);
-            if (in.senderAddress != contract.getAddress()) {
+            val externalUpdate = in.senderAddress != contract.getAddress();
+            var msgValue = 0;
+            if (externalUpdate) {
+                msgValue = in.valueCoins;
+            }
+
+            storage.finalizeRound(status, msgValue);
+
+            if (externalUpdate) {
                 // Reserve pre-msg balance. Can't fail
                 reserveGramsOnBalance(
                     0,
@@ -572,7 +579,6 @@ fun onInternalMessage(in: InMessage) {
                     SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_IGNORE_ERRORS,
                 );
             }
-
             storage.validators = validators.toCell();
 
             storage.save();
@@ -645,7 +651,10 @@ fun onInternalMessage(in: InMessage) {
                     in.senderAddress,
                     ErrorsPool.ValidatorNotFound,
                 )!;
-                storage.finalizeRound(validators.rotateRound(in.senderAddress, storage.roundIndex));
+                storage.finalizeRound(
+                    validators.rotateRound(in.senderAddress, storage.roundIndex),
+                    in.valueCoins,
+                );
                 // practically halted check position here doesn't masterchain
                 // Can only halt if there were stakes in prev round
                 // And if there were stakes, it will only rotate in RecoverStakeOk
