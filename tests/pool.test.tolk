@@ -1206,6 +1206,161 @@ get fun `test halted should not be able to lift with excessive value attached to
     expect(poolAfter.roundClosed).toBeFalse();
 }
 
+get fun `test halted should not be able to lift with excessive value attached to NewStake`() {
+    val (elector, stakes, limits) = setupElector();
+
+    var (pool, owner, _notOwner, validator) = setupDeployedPool();
+    val fatNm = testing.treasury("FatCat");
+    val simpleFolk = testing.treasury("peasant");
+    var lagreDepo = ton("100000");
+    var smallDepo = lagreDepo / 10;
+
+    assertPoolDepositInstant(pool, fatNm.address, lagreDepo);
+    assertPoolDepositInstant(pool, simpleFolk.address, smallDepo);
+    lagreDepo -= DEPOSIT_GAS;
+    val stake = lagreDepo / 2;
+
+    var elections = announceElections(elector);
+    assertPoolNewStake(validator, pool, elector, elections, stake);
+
+    var res = pool.sendTextComment(
+        fatNm.address,
+        "w".beginParse(),
+        { value: WITHDRAWAL_GAS },
+    );
+    var poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
+
+    runElections(elector, stakes, limits);
+
+    expect(pool.getPoolData().halted).toBeFalse();
+    val excessiveValue = lagreDepo * 2;
+    elections = announceElections(elector);
+    res = pool.sendNewStake(
+        validator,
+        DEFAULT_QUERY_ID,
+        stake,
+        getSignedBody(elections),
+        { value: excessiveValue },
+    );
+
+    expect(
+        res,
+    ).toHaveRefund<NewStake>({ from: pool.address, to: validator, error: ErrorsPool.PoolIsHalted });
+}
+
+get fun `test halted should not be able to lift with excessive value attached to RecoverStake`() {
+    val (elector, stakes, limits) = setupElector();
+
+    var (pool, _owner, _notOwner, validator) = setupDeployedPool();
+    val fatNm = testing.treasury("FatCat");
+    var lagreDepo = ton("100000");
+
+    assertPoolDepositInstant(pool, fatNm.address, lagreDepo);
+    lagreDepo -= DEPOSIT_GAS;
+    val stake = lagreDepo / 2;
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+        stake,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+        stake,
+    );
+
+    var res = pool.sendTextComment(
+        fatNm.address,
+        "w".beginParse(),
+        { value: WITHDRAWAL_GAS },
+    );
+    var poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
+
+    expect(pool.getPoolData().halted).toBeFalse();
+    waitTillRecovery(pool, validator, elector.address);
+    val excessiveValue = lagreDepo * 2;
+    res = pool.sendRecoverStakeCompat(validator, DEFAULT_QUERY_ID, { value: excessiveValue });
+
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+    expect(res).toNotHaveTx<PayoutBurnMessage>();
+
+    poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
+    expect(poolAfter.halted).toBeTrue();
+}
+
+get fun `test halted should not be able to lift with excessive value attached to RecoverStakeUnrestricted`() {
+    val (elector, stakes, limits) = setupElector();
+
+    var (pool, _owner, _notOwner, validator) = setupDeployedPool();
+    val fatNm = testing.treasury("FatCat");
+    var lagreDepo = ton("100000");
+
+    assertPoolDepositInstant(pool, fatNm.address, lagreDepo);
+    lagreDepo -= DEPOSIT_GAS;
+    val stake = lagreDepo / 2;
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+        stake,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+        stake,
+    );
+
+    var res = pool.sendTextComment(
+        fatNm.address,
+        "w".beginParse(),
+        { value: WITHDRAWAL_GAS },
+    );
+    var poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
+
+    expect(pool.getPoolData().halted).toBeFalse();
+    waitTillRecovery(pool, validator, elector.address);
+    val excessiveValue = lagreDepo * 2;
+    res = pool.sendRecoverStakeUnrestricted(
+        validator,
+        DEFAULT_QUERY_ID,
+        validator,
+        ton("1"),
+        { value: excessiveValue },
+    );
+
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+    expect(res).toNotHaveTx<PayoutBurnMessage>();
+
+    poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
+    expect(poolAfter.halted).toBeTrue();
+}
+
 get fun `test halted should not be able to lift with excessive value attached to reward withdrawal`() {
     val (elector, stakes, limits) = setupElector();
 
