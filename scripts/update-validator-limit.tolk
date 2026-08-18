@@ -20,8 +20,12 @@ fun main() {
         pool,
         "VALIDATOR_ADDRESS",
         "Select validator to update the limit for:",
-        true,
     );
+    if (validator == null) {
+        println("Pool {} has no registered validators.", pool.address);
+        return;
+    }
+    val validatorAddr = validator!;
 
     val limitOpt = promptValidatorLimit();
     if (limitOpt == null) {
@@ -34,13 +38,13 @@ fun main() {
     val queryId = (env<int>("QUERY_ID") ?? 1) as uint64;
     val value = promptCoins("MSG_VALUE", "Message value (TON):", "1");
 
-    println("Updating per-validator limit for {}", validator);
+    println("Updating per-validator limit for {}", validatorAddr);
 
     confirmSend(
         format(
             "Update per-validator limit\n  pool:       {}\n  validator:  {}\n  limit:      {}\n  value:      {:gram}",
             pool.address,
-            validator,
+            validatorAddr,
             limit,
             value,
         ),
@@ -49,7 +53,10 @@ fun main() {
     val res = pool.sendUpdateLimits(
         owner.address,
         queryId,
-        ValidatorSpecific { validator, limit },
+        ValidatorSpecific {
+            validator: validatorAddr,
+            limit,
+        },
         { value },
     );
 
@@ -57,18 +64,16 @@ fun main() {
         Assert.fail("UpdateLimits (ValidatorSpecific) message was not accepted by network");
     }
 
-    // Read the validator's record back from the persisted validators cell. We
-    // account for the main validator (stored in mainValidatorData, NOT in the
-    // validators map) as well as extra validators. The limit is compared by
-    // cell hash because the ValidatorLimit union (ValidatorLimitTon |
-    // ValidatorLimitShare) has no explicit opcodes, so deserializing it back
-    // via `match` is unreliable off-chain.
-    val rec = lookupValidatorRecord(pool, validator);
+    // Read the validator's record back from the persisted validators map.
+    // The limit is compared by cell hash because the ValidatorLimit union
+    // (ValidatorLimitTon | ValidatorLimitShare) has no explicit opcodes, so
+    // deserializing it back via `match` is unreliable off-chain.
+    val rec = lookupValidatorRecord(pool, validatorAddr);
     if (rec == null) {
         Assert.fail(
             format(
                 "Validator {} was not found in pool {} after UpdateLimits",
-                validator,
+                validatorAddr,
                 pool.address,
             ),
         );

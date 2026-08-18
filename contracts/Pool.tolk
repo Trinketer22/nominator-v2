@@ -57,7 +57,7 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
     POOL_MIN_STORAGE +
     validators.stakeUsed;
     assert(totalBalance > self.nominatorsAmount, ErrorsPool.Insolvent);
-    self.finalizeRound(validators.rotateRound(validators.mainValidatorAddress, self.roundIndex));
+    self.finalizeRound(validators.rotateRoundQuick(self.roundIndex));
     self.validators = validators.toCell();
 
     match (msg) {
@@ -324,7 +324,7 @@ fun Storage.sendStakeRecovery(
             validator,
             ErrorsPool.ValidatorNotFound,
         )!;
-        val usageState = validatorData.data.usageState;
+        val usageState = validatorData.usageState;
         assert(usageState > 0, ErrorsPool.UsageRecordNotFound);
         val actionableValue = min(inValue, MAX_RECOVERY_VALUE);
         var proxyAddressHash: uint256;
@@ -437,7 +437,7 @@ fun handleNewStakeError(sender: address, value: int) {
         var valState = validators.getValidatorByAddress(stakeReturned.data.validator, null);
         // Should alway be true, but we don't want to throw here or mess the state
         if (valState != null) {
-            valState.data.usageState &= ~parityToMask(round.roundIndex % 2 > 0);
+            valState.usageState &= ~parityToMask(round.roundIndex % 2 > 0);
             validators.updateValidatorByAddress(stakeReturned.data.validator, valState);
             validators.stakeUsed -= stakeReturned.data.tonUsed;
             validators.activeSlots -= 1;
@@ -497,16 +497,15 @@ fun onInternalMessage(in: InMessage) {
         // CARRY_ALL_BALANCE sends the entire balance above this reserve (the surplus from the incoming value).
         initPoolSuccess.send(SEND_MODE_CARRY_ALL_BALANCE);
 
-        val validatorsData = ValidatorsData {
-            mainValidatorAddress: msg.mainValidator,
+        var validatorsData = ValidatorsData {
             maxTonPerValidator: msg.maxTonPerValidator,
             minTonPerValidator: msg.minTonPerValidator,
             curRound: RoundData { roundIndex: 0 }.toCell(),
             prevRound: RoundData { roundIndex: 0 }.toCell(),
             vsetHash: getCurVset().vsetHash >> 128,
-            mainValidatorData: mainValidator.toCell(),
             refundBonus: msg.refundBonus,
         };
+        validatorsData.validators.set(msg.mainValidator, mainValidator);
         assertStakingLimit(msg.minTonPerValidator, msg.maxTonPerValidator);
         val newStorage = Storage {
             owner: storage.owner,
@@ -661,8 +660,8 @@ fun onInternalMessage(in: InMessage) {
                 val stakeAmountSent = msg.value - ton("1");
 
                 assert(msg.value >= validators.minTonPerValidator, ErrorsPool.StakeBelowLimit);
-                if (valData.data.isBanned) {
-                    assert(valData.data.usageState == 0, ErrorsPool.ValidatorNotFound);
+                if (valData.isBanned) {
+                    assert(valData.usageState == 0, ErrorsPool.ValidatorNotFound);
                     refundError(
                         in.senderAddress,
                         {
@@ -687,7 +686,7 @@ fun onInternalMessage(in: InMessage) {
 
                 // Validate stored parameters against network state every time
                 assertStakingLimit(validators.minTonPerValidator, validators.maxTonPerValidator);
-                val valLimit = valData.data.limit;
+                val valLimit = valData.limit;
                 val stakeMax = getValidatorLimit(
                     valLimit,
                     totalBalance,
@@ -704,10 +703,8 @@ fun onInternalMessage(in: InMessage) {
                 // if(storage.maxNominators > 0) {
                 // True single nominator mode TODO
                 assert(!storage.roundClosed, ErrorsPool.RoundIsClosed);
-                assert((valData.data.usageState & roundIndex) ==
-                0, ErrorsPool.AlreadyStakedInThatRound);
-                assert((valData.data.roundParity as int & roundIndex) !=
-                0, ErrorsPool.RoundNotAllowed);
+                assert((valData.usageState & roundIndex) == 0, ErrorsPool.AlreadyStakedInThatRound);
+                assert((valData.roundParity as int & roundIndex) != 0, ErrorsPool.RoundNotAllowed);
                 // + pendingWithdrawals because pending withdrawals are already part of nominatorsAmount
                 val ownerShare = totalBalance - storage.nominatorsAmount + estPendingWithdrawals;
                 validators.stakeUsed += stakeAmountSent;
@@ -722,11 +719,11 @@ fun onInternalMessage(in: InMessage) {
                 curVset.utimeUntil - electionsConf.endBefore, ErrorsPool.ElectionsAlreadyEnded);
                 //}
 
-                valData.data = {
-                    usageState: valData.data.usageState | roundIndex,
-                    roundParity: valData.data.roundParity,
-                    oddProxy: valData.data.oddProxy,
-                    evenProxy: valData.data.evenProxy,
+                valData = {
+                    usageState: valData.usageState | roundIndex,
+                    roundParity: valData.roundParity,
+                    oddProxy: valData.oddProxy,
+                    evenProxy: valData.evenProxy,
                     limit: valLimit,
                 };
 
@@ -734,7 +731,7 @@ fun onInternalMessage(in: InMessage) {
 
                 var curRound = validators.curRound.load();
                 curRound.used += stakeAmountSent;
-                val proxyAddress = valData.data.getProxyAddressByParity(roundIndex);
+                val proxyAddress = valData.getProxyAddressByParity(roundIndex);
                 curRound
                     .users
                     .set(
@@ -899,7 +896,7 @@ fun onInternalMessage(in: InMessage) {
                 stakeReturnedMsg.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_IGNORE_ERRORS);
 
                 // Who we owe are all forgiven
-                validator.data.usageState &= ~parityToMask(proxyData.parity);
+                validator.usageState &= ~parityToMask(proxyData.parity);
                 // Preserve the unused even if validator fully exits the pool
                 validators.updateValidatorByAddress(stakeReturned.validator, validator);
 
@@ -1097,7 +1094,7 @@ get fun get_proxy_address(validator: address): GetProxyAddressResult {
 
     val valData = validators.getValidatorByAddress(validator, ErrorsPool.ValidatorNotFound)!;
 
-    val allowedRounds = valData.data.roundParity as int;
+    val allowedRounds = valData.roundParity as int;
 
     return {
         evenRounds: (allowedRounds & 2) > 0 ? getProxyAddress(validator, false) : null,
@@ -1151,10 +1148,9 @@ get fun get_validator_info(address: address): GetValidatorInfo {
         roundIndex += 1;
     }
     val roundMask = parityToMask(roundIndex % 2 > 0);
-    var stakeNotAvailable = validator.data.isBanned || rotationStatus.roundIsClosed ||
-    storage.halted;
-    stakeNotAvailable = stakeNotAvailable || ((roundMask & validator.data.usageState) > 0);
-    stakeNotAvailable = stakeNotAvailable || ((roundMask & validator.data.roundParity as int) == 0);
+    var stakeNotAvailable = validator.isBanned || rotationStatus.roundIsClosed || storage.halted;
+    stakeNotAvailable = stakeNotAvailable || ((roundMask & validator.usageState) > 0);
+    stakeNotAvailable = stakeNotAvailable || ((roundMask & validator.roundParity as int) == 0);
     val stakeLimits = lazy StakingLimits.load();
     stakeNotAvailable = stakeNotAvailable || validators.minTonPerValidator < stakeLimits.minStake;
     stakeNotAvailable = stakeNotAvailable || validators.maxTonPerValidator > stakeLimits.maxStake;
@@ -1168,7 +1164,7 @@ get fun get_validator_info(address: address): GetValidatorInfo {
             validators.stakeUsed,
         );
         val stakeLimit = getValidatorLimit(
-            validator.data.limit,
+            validator.limit,
             total,
             validators.maxTonPerValidator,
         );
@@ -1187,14 +1183,12 @@ get fun get_validator_info(address: address): GetValidatorInfo {
     }
 
     return GetValidatorInfo {
-        validator: validator.data,
-        usage: validator
-            .data
-            .allUsageRecords(
-                toBitIndex(roundIndex),
-                validators.curRound.load(),
-                validators.prevRound.load(),
-            ),
+        validator,
+        usage: validator.allUsageRecords(
+            toBitIndex(roundIndex),
+            validators.curRound.load(),
+            validators.prevRound.load(),
+        ),
         stakeable,
         roundIndex,
         rotated: rotationStatus.roundRotated,

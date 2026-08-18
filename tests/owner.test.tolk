@@ -224,27 +224,6 @@ get fun `test owner should be able to remove validator`() {
     expect(valdatorsUpd.activeValidators).toEqual(validatorsBefore.activeValidators - 1);
 }
 
-get fun `test owner should not be able to remove main validator`() {
-    val (pool, owner, _notOwner, validator, _nominators) = setupPoolWithNominators(10);
-
-    val balanceBefore = testing.getAccountBalance(pool.address);
-    val stateBefore = getAccountData(pool.address);
-    val res = pool.sendRemoveValidator(
-        owner.address,
-        DEFAULT_QUERY_ID,
-        validator,
-        { value: ton("10000") },
-    );
-
-    expect(res).toHaveRefund<RemoveValidator>({
-        from: pool.address,
-        to: owner.address,
-        initialBalance: balanceBefore,
-        previousState: stateBefore,
-        error: ErrorsPool.MainValidatorCantBeRemoved,
-    });
-}
-
 get fun `test only owner should be able to remove validator`() {
     val (pool, owner, notOwner, _validator, _nominators) = setupPoolWithNominators(10);
 
@@ -430,16 +409,14 @@ get fun `test should not be able to add same validator twice`() {
     });
 }
 
-get fun `test should not be able to add main validator address twice`() {
-    val (pool, owner, _notOwner, _validator, _nominators) = setupPoolWithNominators(1);
-    val poolBefore = pool.getPoolData();
-    val mainAddress = poolBefore.validators.load().mainValidatorAddress;
+get fun `test should not be able to add validator address twice`() {
+    val (pool, owner, _notOwner, validator, _nominators) = setupPoolWithNominators(1);
 
     val previousState = getAccountData(pool.address);
     val res = pool.sendAddValidator(
         owner.address,
         DEFAULT_QUERY_ID,
-        mainAddress,
+        validator,
         RoundAllowance.InAllRounds,
         null,
         { value: ton("1000") },
@@ -723,11 +700,11 @@ get fun `test owner should be able to update per-validator limit`(maxTon: coins,
         var stateAfter = pool.getPoolData();
         var validatorsAfter = stateAfter.validators.load();
         var validatorUpd = validatorsAfter.getValidatorByAddress(curValidator, 42)!;
-        expect(validatorUpd.data.limit).toNotEqual(null);
-        if (validatorUpd.data.limit is ValidatorLimitTon) {
-            expect(validatorUpd.data.limit).toEqual(tonLimit);
+        expect(validatorUpd.limit).toNotEqual(null);
+        if (validatorUpd.limit is ValidatorLimitTon) {
+            expect(validatorUpd.limit).toEqual(tonLimit);
         } else {
-            Assert.fail(format("Expected ton limit got {}", validatorUpd.data.limit));
+            Assert.fail(format("Expected ton limit got {}", validatorUpd.limit));
         }
         /*
         match(stateAfter.validator.limit) {
@@ -752,10 +729,10 @@ get fun `test owner should be able to update per-validator limit`(maxTon: coins,
         validatorsAfter = stateAfter.validators.load();
         validatorUpd = validatorsAfter.getValidatorByAddress(curValidator, 42)!;
 
-        if (validatorUpd.data.limit is ValidatorLimitShare) {
-            expect(validatorUpd.data.limit).toEqual(shareLimit);
+        if (validatorUpd.limit is ValidatorLimitShare) {
+            expect(validatorUpd.limit).toEqual(shareLimit);
         } else {
-            Assert.fail(format("Expected share limit got {}", validatorUpd.data.limit));
+            Assert.fail(format("Expected share limit got {}", validatorUpd.limit));
         }
 
         //stateAfter = pool.getValidatorInfo(curValidator);

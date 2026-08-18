@@ -96,7 +96,7 @@ The original contract has no separate owner role: its single immutable validator
 | Area | Original TON Nominator Pool | This implementation |
 |------|-----------------------------|---------------------|
 | **Authority** | The immutable validator wallet submits stakes, adds validator funds, and withdraws funds not owed to nominators. | A separate owner manages pool configuration and owner equity. Validators are limited to staking and recovery operations. |
-| **Configuration** | Validator address, reward share, capacity, and minimum stakes are fixed at deployment. | The owner can manage extra validators, validator limits, nominator minimum/count, whitelist, and `refundBonus`. `ownerShare`, `minWithdrawableRewards`, main validator identity, and round allowances remain immutable. |
+| **Configuration** | Validator address, reward share, capacity, and minimum stakes are fixed at deployment. | The owner can manage validators, validator limits, nominator minimum/count, whitelist, and `refundBonus`. `ownerShare`, `minWithdrawableRewards`, and round allowances remain immutable. |
 | **Economics** | Positive reward pays immutable `validator_reward_share`; validator funds bear losses first. | Signed profit and loss are allocated by immutable `ownerShare`. A mutable `refundBonus` may reduce distributable profit, so users should monitor current settings. |
 | **Owner withdrawals** | The validator can withdraw its accounted balance and otherwise unallocated funds while preserving nominator liabilities and the storage reserve. | The owner can withdraw only liquid owner equity remaining after nominator liabilities, pending deposits, storage reserve, and punishment capitalization. |
 | **Operational scale** | One masterchain pool serves one validator and a small tested nominator set. | One basechain pool coordinates multiple validators through masterchain proxies and processes large pending sets asynchronously. |
@@ -114,10 +114,10 @@ The original limits and behavior above are based on its [pool-v1 README](https:/
 │                     NominatorPool                           │
 │                    (basechain, wc=0)                        │
 ├─────────────────────────────────────────────────────────────┤
-│  Owner          │  Validators Map  │  Nominators Map         │
-│  Pool ID        │  Main validator  │  Shares / TON amounts   │
-│  Owner Share    │  Extra validators│  Pending ops (cells)    │
-│  Round state    │  Round usage     │  Max count / min stake  │
+│  Owner          │  Validators Map  │  Nominators Map        │
+│  Pool ID        │  Staking limits  │  Shares / TON amounts  │
+│  Owner Share    │  Round usage     │  Pending ops (cells)   │
+│  Round state    │  Proxy addresses │  Max count / min stake │
 └─────────────────────────────────────────────────────────────┘
          │                           │
          │ deploys                   │ proxies for stake/recover
@@ -144,7 +144,7 @@ The original limits and behavior above are based on its [pool-v1 README](https:/
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `mainValidator` | `address` | The primary validator address. This validator cannot be removed. |
+| `mainValidator` | `address` | The first validator address, registered during initialization. |
 | `roundAllowance` | `RoundAllowance` | Which rounds the validator may participate in: `InOddRounds`, `InEvenRounds`, or `InAllRounds`. |
 | `limit` | `ValidatorLimit?` | Optional per-validator staking limit. Can be an absolute TON cap (`ValidatorLimitTon`) or a share of total pool balance (`ValidatorLimitShare`). |
 | `ownerShare` | `uint25` | The owner's share of signed recovery profit or loss, expressed as parts of `SHARE_BASE` (2^24). `SHARE_BASE` assigns all profit and loss to owner equity; `0` assigns it all to nominators. |
@@ -181,9 +181,9 @@ Each validator can have an individual staking limit set via `ValidatorSpecific`.
 
 - **`ValidatorLimitShare`** — a share of projected pool balance (`maxShare`, expressed as parts of `SHARE_BASE = 16777216`). The calculation includes `stakeUsed` and excludes incoming transaction funding, pending deposits, the current TON value of pending-withdrawal shares, and `POOL_MIN_STORAGE`. The validator can stake up to `maxShare / SHARE_BASE` of this balance per round. This **auto-rebalances as profits accrue**.
 
-The main validator's limit is set during `init-pool`; extra validators get their limit during `add-validator`. Both can be updated later via `update-validator-limit`.
+The first validator's limit is set during `init-pool`; additional validators get their limit during `add-validator`. Both can be updated later via `update-validator-limit`.
 
-Setting a validator's share limit to `0` effectively **soft-bans** it from new stakes without removing it from the pool — the validator stays registered (preserving its proxies and recovery state) but cannot stake until the limit is raised again. This is especially important for the main validator, which cannot be removed via `RemoveValidator` — a zero share limit is the only way to temporarily disable it.
+Setting a validator's share limit to `0` effectively **soft-bans** it from new stakes without removing it from the pool — the validator stays registered (preserving its proxies and recovery state) but cannot stake until the limit is raised again. This is useful for any validator that should be temporarily disabled without losing its recovery state.
 
 **Calculating the share:** the share limit is applied per round against the pool's projected balance. Because each validator can have stakes active in both the current and previous round simultaneously (one proxy staking, one recovering), the total number of concurrent stake slots is `sum of round allowances across all validators` (each validator contributes 1 slot per round it participates in: odd-only → 1, even-only → 1, all rounds → 2). To split the pool evenly when all validators use all rounds, set each validator's `maxShare` to `SHARE_BASE / (numValidators × 2)`.
 
@@ -193,7 +193,7 @@ Total concurrent slots = 2 validators × 2 rounds = 4. Each validator should get
 
 **Interactive:**
 ```bash
-# Initialize with main validator at 25% share cap
+# Initialize with first validator at 25% share cap
 acton script scripts/init-pool.tolk --net mainnet
 # When prompted for the limit, pick: share, maxShare = 4194304
 
@@ -231,7 +231,7 @@ Each validator can stake up to 25% of the pool per round. With both rounds activ
 Each validator participates in only one round parity, so each has 1 concurrent slot. Total concurrent slots = 1 + 1 = 2. Each validator should get `SHARE_BASE / 2 = 8388608` (50% per round).
 
 ```bash
-# Initialize with main validator (odd rounds) at 50% share cap
+# Initialize with first validator (odd rounds) at 50% share cap
 acton script scripts/init-pool.tolk --net mainnet
 # When prompted for the limit, pick: share, maxShare = 8388608
 
@@ -249,7 +249,7 @@ Total concurrent slots = 3 validators × 2 rounds = 6. Each validator should get
 
 **Interactive:**
 ```bash
-# Initialize with main validator at ~16.7% share cap
+# Initialize with first validator at ~16.7% share cap
 acton script scripts/init-pool.tolk --net mainnet
 # When prompted for the limit, pick: share, maxShare = 2796203
 
@@ -293,7 +293,7 @@ Each validator can stake up to ~16.7% of the pool per round. Across both rounds,
 
 #### Soft-ban via zero share limit
 
-To temporarily disable a validator (including the main validator, which cannot be removed), set its share limit to 0:
+To temporarily disable a validator, set its share limit to 0:
 
 ```bash
 # Interactive
@@ -472,7 +472,7 @@ After more than two observed changes, the timestamp condition is skipped. This e
 
 ### Round Closure and Re-Opening
 
-If the main validator's vset changes while `prevRound` still contains unrecovered stakes, the pool **closes** the current round:
+If the vset changes while `prevRound` still contains unrecovered stakes, the pool **closes** the current round:
 - `roundClosed = true`
 - New stakes are forbidden
 - Validators must recover their outstanding stakes
@@ -694,7 +694,7 @@ acton script scripts/deploy.tolk --net mainnet
 
 #### Initialize the pool
 
-Sets the main validator, its round allowance (`1=odd`, `2=even`, `3=all`), owner share, staking limits, refund parameters, and nominator settings. Must be sent by the pool owner. Set `VALIDATOR_ROUND_ALLOWANCE` for batch use. The initial whitelist is empty and can be updated afterward.
+Sets the first validator, its round allowance (`1=odd`, `2=even`, `3=all`), owner share, staking limits, refund parameters, and nominator settings. Must be sent by the pool owner. Set `VALIDATOR_ROUND_ALLOWANCE` for batch use. The initial whitelist is empty and can be updated afterward.
 
 ```bash
 acton script scripts/init-pool.tolk --net mainnet
@@ -718,7 +718,7 @@ acton script scripts/add-validator.tolk --net mainnet
 
 #### Remove a validator
 
-Removes an idle extra validator immediately. If it has active usage, its record remains banned from new stakes so recovery can complete. The main validator cannot be removed. Sent by the owner.
+Removes an idle validator immediately. If it has active usage, its record remains banned from new stakes so recovery can complete. Sent by the owner.
 
 ```bash
 acton script scripts/remove-validator.tolk --net mainnet
@@ -726,7 +726,7 @@ acton script scripts/remove-validator.tolk --net mainnet
 
 #### Set a per-validator staking limit
 
-Sets an individual TON cap or share cap for a specific validator (main or extra). Sent by the owner.
+Sets an individual TON cap or share cap for a specific validator. Sent by the owner.
 
 ```bash
 acton script scripts/update-validator-limit.tolk --net mainnet

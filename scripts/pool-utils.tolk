@@ -103,19 +103,14 @@ fun promptPoolAddress(): address {
     return promptAddress("Pool address:", null, "EQ... / kQ... / Ef... / kf...");
 }
 
-// Looks up a validator record in the persisted validators cell, accounting
-// for the main validator (stored in mainValidatorData, NOT in the validators
-// map). Returns null when the validator is not found.
-// We avoid get_validator_info because it calls rotateRound →
-// blockchain.configParam(34), which is unreliable off-chain (DEFAULT_CONFIG
-// in acton script) and may throw, masking the actual on-chain state.
+// Looks up a validator record in the persisted validators map. Returns null
+// when the validator is not found. We avoid get_validator_info because it
+// calls rotateRound → blockchain.configParam(34), which is unreliable
+// off-chain (DEFAULT_CONFIG in acton script) and may throw, masking the
+// actual on-chain state.
 fun lookupValidatorRecord(pool: Pool, validator: address): Validator? {
     val poolData = pool.getPoolData();
     val validators = lazy poolData.validators.load();
-    if (validator == validators.mainValidatorAddress) {
-        val mainData = lazy validators.mainValidatorData.load();
-        return mainData;
-    }
     val lookup = validators.validators.get(validator);
     if (lookup.isFound) {
         return lookup.loadValue();
@@ -152,8 +147,8 @@ fun ensureValidatorAdded(pool: Pool, validator: address): void {
 }
 
 // Verifies a validator is present in the pool. Reads the persisted validators
-// cell (accounting for the main validator) instead of get_validator_info,
-// which is unreliable off-chain due to configParam(34) dependency.
+// map instead of get_validator_info, which is unreliable off-chain due to
+// configParam(34) dependency.
 fun expectValidatorPresent(pool: Pool, validator: address): void {
     if (lookupValidatorRecord(pool, validator) == null) {
         Assert.fail(
@@ -164,8 +159,7 @@ fun expectValidatorPresent(pool: Pool, validator: address): void {
 
 fun expectValidatorAbsent(pool: Pool, validator: address): void {
     // A removed validator with no outstanding stake is deleted from the
-    // validators map. The main validator cannot be removed, so absence is
-    // checked only against the extra-validators map.
+    // validators map. Absence is checked against the validators map.
     if (lookupValidatorRecord(pool, validator) != null) {
         Assert.fail(
             format("Validator {} is still present in pool {}", validator, pool.address),
@@ -348,17 +342,12 @@ fun promptAddressWithEnv(envVar: string, message: string, default: address? = nu
 }
 
 // Builds a list of known validator addresses from the pool's persisted
-// validators cell (main validator + extra validators). Returns the addresses
-// together with their picker labels (the main validator is tagged "(main)").
-fun collectValidatorOptions(pool: Pool, includeMain: bool): (array<address>, array<string>) {
+// validators map. Returns the addresses together with their picker labels.
+fun collectValidatorOptions(pool: Pool): (array<address>, array<string>) {
     var addresses: array<address> = [];
     var labels: array<string> = [];
     val poolData = pool.getPoolData();
     val validators = lazy poolData.validators.load();
-    if (includeMain) {
-        addresses.push(validators.mainValidatorAddress);
-        labels.push(format("{} (main)", validators.mainValidatorAddress));
-    }
     if (!validators.validators.isEmpty()) {
         var iter = validators.validators.findFirst();
         while (iter.isFound) {
@@ -372,23 +361,23 @@ fun collectValidatorOptions(pool: Pool, includeMain: bool): (array<address>, arr
 }
 
 // Prompts for a validator address using a picker built from the pool's known
-// validators instead of a free-form text prompt. An env var short-circuits the
-// picker for non-interactive runs.
+// validators. Returns null when the pool has no registered validators (the
+// caller should print a message and exit). An env var short-circuits the
+// prompt for non-interactive runs.
 fun promptValidatorPicker(
     pool: Pool,
     envVar: string,
     message: string,
-    includeMain: bool,
-): address {
+): address? {
     val fromEnv = env<address>(envVar);
     if (fromEnv != null) {
         return fromEnv;
     }
 
-    val (addresses, labels) = collectValidatorOptions(pool, includeMain);
+    val (addresses, labels) = collectValidatorOptions(pool);
 
     if (labels.size() == 0) {
-        Assert.fail("No validators available to pick from in this pool");
+        return null;
     }
 
     val choice = select(message, labels, 0);

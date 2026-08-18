@@ -85,9 +85,7 @@ validator$_
 = Validator;
 
 validators_data$_
-  main_validator_address:MsgAddressInt
   vset_hash:uint128
-  main_validator_data:^Validator
   active_validators:uint6
   active_slots:uint7
   stake_used:Grams

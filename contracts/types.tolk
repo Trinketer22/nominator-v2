@@ -46,9 +46,7 @@ struct CurrentVset {
 }
 
 struct ValidatorsData {
-    mainValidatorAddress: address
     vsetHash: uint128
-    mainValidatorData: Cell<Validator>
     // 32 validators will fit
     activeValidators: uint6 = 1
     activeSlots: uint7 = 0
@@ -106,11 +104,6 @@ struct Validator {
     oddProxy: uint256? = null
     limit: ValidatorLimit? = null
     roundParity: RoundAllowance
-}
-
-struct ValidatorLookup {
-    isMain: bool
-    data: Validator
 }
 
 struct UsageLookup {
