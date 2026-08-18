@@ -114,10 +114,10 @@ The original limits and behavior above are based on its [pool-v1 README](https:/
 │                     NominatorPool                           │
 │                    (basechain, wc=0)                        │
 ├─────────────────────────────────────────────────────────────┤
-│  Owner          │  Validators Map  │  Nominators Map         │
-│  Pool ID        │  Main validator  │  Shares / TON amounts   │
-│  Owner Share    │  Extra validators│  Pending ops (cells)    │
-│  Round state    │  Round usage     │  Max count / min stake  │
+│  Owner          │  Validators Map  │  Nominators Map        │
+│  Pool ID        │  Staking limits  │  Shares / TON amounts  │
+│  Owner Share    │  Round usage     │  Pending ops (cells)   │
+│  Round state    │  Proxy addresses │  Max count / min stake │
 └─────────────────────────────────────────────────────────────┘
          │                           │
          │ deploys                   │ proxies for stake/recover
