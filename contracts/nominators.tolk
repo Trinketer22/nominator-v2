@@ -39,7 +39,7 @@ fun Nominator.withdrawShare(
     owner: address,
     shareCount: coins,
     shareValue: coins,
-    roundClosed: bool,
+    shouldGoPending: bool,
     roundIndex: int,
     msgValue: coins,
     pending: Cell<PendingOps>?,
@@ -66,7 +66,7 @@ fun Nominator.withdrawShare(
     val hasAnyPending = (self.pendingWithdrawal | self.pendingDeposit) > 0;
 
     // 0 case can only be withdrawn in pending mode again
-    if (roundClosed || availableBalance < shareValue || hasAnyPending) {
+    if (shouldGoPending || availableBalance < shareValue || hasAnyPending) {
         assert(msgValue >= WITHDRAWAL_GAS, ErrorsPool.NotEnoughGas);
         // Means all the expenses are out of incommingValue
         reserveGramsOnBalance(
@@ -76,12 +76,15 @@ fun Nominator.withdrawShare(
         var pendingWithdrawals: PendingOps;
 
         if (pending == null) {
-            pendingWithdrawals = PendingOps { isWithdraw: true };
+            pendingWithdrawals = PendingOps {
+                isWithdraw: true,
+                roundIndex,
+            };
         } else {
             pendingWithdrawals = pending.load();
         }
 
-        pendingWithdrawals.addPending(owner, roundIndex);
+        pendingWithdrawals.addPending(owner);
         // In ROUNDS_DELAY rounds should be guaranteed to withdraw, but
         // if this doesn't happen for whatever reason,
         // nominator will be able to retry.
@@ -222,13 +225,13 @@ fun PendingOps.process(
     return (processedAmount, false);
 }
 
-fun PendingOps.addPending(mutate self, owner: address, roundIndex: int): uint64 {
+fun PendingOps.addPending(mutate self, owner: address): uint64 {
     // Repilcating the mechanics of liquid staking payout
     self.index += 1;
     if (self.nextStateInit == null) {
         self.nextStateInit = calculateItemStateInit(
             self.index,
-            roundIndex,
+            self.roundIndex,
             self.isWithdraw,
         ).toCell();
         self.next = AutoDeployAddress {
@@ -244,7 +247,7 @@ fun PendingOps.addPending(mutate self, owner: address, roundIndex: int): uint64 
 
     self.nextStateInit = calculateItemStateInit(
         self.index + 1,
-        roundIndex,
+        self.roundIndex,
         self.isWithdraw,
     ).toCell();
     self.next = AutoDeployAddress {
@@ -261,7 +264,7 @@ fun PendingOps.addPending(mutate self, owner: address, roundIndex: int): uint64 
         value: PAYOUT_ITEM_BALANCE,
         body: PayoutInitMessage {
             isWithdrawal: self.isWithdraw,
-            roundIndex,
+            roundIndex: self.roundIndex,
             queryId: 0,
             owner,
             prev: self.next,

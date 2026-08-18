@@ -788,7 +788,7 @@ get fun `test stake profit smaller than refundBonus should not award bonus`() {
 
 get fun `test deep losses should put pool nm operations into insolvent state`() {
     val (elector, stakes, limits) = setupElector();
-    val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
+    val (pool, owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
 
     runRound(
         pool,
@@ -896,6 +896,19 @@ get fun `test deep losses should put pool nm operations into insolvent state`() 
         initialBalance: testing.getAccountBalance(
             pool.address,
         ),
+    });
+    val ownerRes = pool.sendOwnerWithdrawal(
+        owner.address,
+        DEFAULT_QUERY_ID,
+        ton("1"),
+        { value: DEFAULT_MSG_VALUE },
+    );
+    expect(ownerRes).toHaveRefund<OwnerWithdrawal>({
+        from: pool.address,
+        to: owner.address,
+        previousState: stateBefore,
+        initialBalance: testing.getAccountBalance(pool.address),
+        error: ErrorsPool.Insolvent,
     });
     // Since owner share got hit, new stake should hit OwnerShareIsUndercapitalized
     val elections = announceElections(elector);
@@ -1011,6 +1024,7 @@ get fun `test pool should halt if withdrawals can't be processed`() {
 
     poolAfter = pool.getPoolData();
     expect(poolAfter.halted).toBeTrue();
+    expect(poolAfter.roundClosed).toBeFalse();
     expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
 
     assertNewStakeFailed(
@@ -1024,16 +1038,22 @@ get fun `test pool should halt if withdrawals can't be processed`() {
 
     // Now if others want out, they can't till the pool unhalts
 
-    val stateBefore = getAccountData(pool.address);
+    // Witdhrawals should go pending
+    assertDelayedOperation(pool, simpleFolk.address, true);
+    /*
     res = pool.sendTextComment(simpleFolk.address, "w".beginParse(), { value: ton("1") });
     expect(
         res,
     ).toHaveRefund<TextComment>({ from: pool.address, to: simpleFolk.address, error: ErrorsPool.PoolIsHalted, previousState: stateBefore });
+    */
 
     // And no one should be able to deposit either
 
     val depositor = testing.treasury("Depositor");
 
+    // Deposit goes pending because the round rotated (hasPrevUsage), even while halted
+    assertDelayedOperation(pool, depositor.address, false, smallDepo);
+    /*
     res = pool.sendTextComment(
         depositor.address,
         "d".beginParse(),
@@ -1042,12 +1062,14 @@ get fun `test pool should halt if withdrawals can't be processed`() {
     expect(
         res,
     ).toHaveRefund<TextComment>({ from: pool.address, to: depositor.address, error: ErrorsPool.PoolIsHalted, previousState: stateBefore });
+    */
 
-    // And no one should be able to collect rewards either
+    val stateBefore = getAccountData(pool.address);
+    // Key change here that it is not rejected by halted state anymore
     res = pool.sendTextComment(simpleFolk.address, "r".beginParse(), { value: ton("1") });
     expect(
         res,
-    ).toHaveRefund<TextComment>({ from: pool.address, to: simpleFolk.address, error: ErrorsPool.PoolIsHalted, previousState: stateBefore });
+    ).toHaveRefund<TextComment>({ from: pool.address, to: simpleFolk.address, error: ErrorsPool.RewardIsBelowMinimal, previousState: stateBefore });
 
     // And owner shouldn't be able to withdraw either
     res = pool.sendOwnerWithdrawal(owner.address, DEFAULT_QUERY_ID, ton("1"), { value: ton("1") });
@@ -1077,14 +1099,342 @@ get fun `test pool should halt if withdrawals can't be processed`() {
         },
     });
 
-    // Deposits work again
+    // Withdrawals work again
+    asssertSimpleWithdawal(pool, depositor.address);
+    // Deposits too
     assertPoolDepositInstant(pool, depositor.address, smallDepo * 2);
-    // Withdrawals too
-    asssertSimpleWithdawal(pool, simpleFolk.address);
 
     // Most importantly new stake
     elections = announceElections(elector);
     assertPoolNewStake(validator, pool, elector, elections, stakes.minStake * 2);
+}
+
+get fun `test halted should not be able to lift with excessive value attached to updateVset`() {
+    val (elector, stakes, limits) = setupElector();
+
+    var (pool, owner, _notOwner, validator) = setupDeployedPool();
+    val fatNm = testing.treasury("FatCat");
+    var lagreDepo = ton("100000");
+    val excessiveValue = lagreDepo * 2;
+
+    assertPoolDepositInstant(pool, fatNm.address, lagreDepo);
+    lagreDepo -= DEPOSIT_GAS;
+    val stake = lagreDepo / 2;
+
+    var elections = announceElections(elector);
+    assertPoolNewStake(validator, pool, elector, elections, stake);
+
+    var res = pool.sendTextComment(
+        fatNm.address,
+        "w".beginParse(),
+        { value: WITHDRAWAL_GAS },
+    );
+    var poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
+
+    runElections(elector, stakes, limits);
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: excessiveValue });
+
+    poolAfter = pool.getPoolData();
+    expect(poolAfter.halted).toBeTrue();
+    expect(poolAfter.roundClosed).toBeFalse();
+}
+
+get fun `test halted should not be able to lift with excessive value attached to deposit`() {
+    val (elector, stakes, limits) = setupElector();
+
+    var (pool, owner, _notOwner, validator) = setupDeployedPool();
+    val fatNm = testing.treasury("FatCat");
+    var lagreDepo = ton("100000");
+
+    assertPoolDepositInstant(pool, fatNm.address, lagreDepo);
+    lagreDepo -= DEPOSIT_GAS;
+    val stake = lagreDepo / 2;
+
+    var elections = announceElections(elector);
+    assertPoolNewStake(validator, pool, elector, elections, stake);
+
+    var res = pool.sendTextComment(
+        fatNm.address,
+        "w".beginParse(),
+        { value: WITHDRAWAL_GAS },
+    );
+    var poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
+
+    runElections(elector, stakes, limits);
+
+    val excessiveValue = lagreDepo * 2;
+    res = pool.sendTextComment(fatNm.address, "d".beginParse(), { value: excessiveValue });
+
+    poolAfter = pool.getPoolData();
+    expect(poolAfter.halted).toBeTrue();
+    expect(poolAfter.roundClosed).toBeFalse();
+}
+
+get fun `test halted should not be able to lift with excessive value attached to withdrawal`() {
+    val (elector, stakes, limits) = setupElector();
+
+    var (pool, owner, _notOwner, validator) = setupDeployedPool();
+    val fatNm = testing.treasury("FatCat");
+    val simpleFolk = testing.treasury("peasant");
+    var lagreDepo = ton("100000");
+    var smallDepo = lagreDepo / 10;
+
+    assertPoolDepositInstant(pool, fatNm.address, lagreDepo);
+    assertPoolDepositInstant(pool, simpleFolk.address, smallDepo);
+    lagreDepo -= DEPOSIT_GAS;
+    val stake = lagreDepo / 2;
+
+    var elections = announceElections(elector);
+    assertPoolNewStake(validator, pool, elector, elections, stake);
+
+    var res = pool.sendTextComment(
+        fatNm.address,
+        "w".beginParse(),
+        { value: WITHDRAWAL_GAS },
+    );
+    var poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
+
+    runElections(elector, stakes, limits);
+
+    val excessiveValue = lagreDepo * 2;
+    res = pool.sendTextComment(simpleFolk.address, "w".beginParse(), { value: excessiveValue });
+    poolAfter = pool.getPoolData();
+    expect(poolAfter.halted).toBeTrue();
+    expect(poolAfter.roundClosed).toBeFalse();
+}
+
+get fun `test halted should not be able to lift with excessive value attached to NewStake`() {
+    val (elector, stakes, limits) = setupElector();
+
+    var (pool, owner, _notOwner, validator) = setupDeployedPool();
+    val fatNm = testing.treasury("FatCat");
+    val simpleFolk = testing.treasury("peasant");
+    var lagreDepo = ton("100000");
+    var smallDepo = lagreDepo / 10;
+
+    assertPoolDepositInstant(pool, fatNm.address, lagreDepo);
+    assertPoolDepositInstant(pool, simpleFolk.address, smallDepo);
+    lagreDepo -= DEPOSIT_GAS;
+    val stake = lagreDepo / 2;
+
+    var elections = announceElections(elector);
+    assertPoolNewStake(validator, pool, elector, elections, stake);
+
+    var res = pool.sendTextComment(
+        fatNm.address,
+        "w".beginParse(),
+        { value: WITHDRAWAL_GAS },
+    );
+    var poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
+
+    runElections(elector, stakes, limits);
+
+    expect(pool.getPoolData().halted).toBeFalse();
+    val excessiveValue = lagreDepo * 2;
+    elections = announceElections(elector);
+    res = pool.sendNewStake(
+        validator,
+        DEFAULT_QUERY_ID,
+        stake,
+        getSignedBody(elections),
+        { value: excessiveValue },
+    );
+
+    expect(
+        res,
+    ).toHaveRefund<NewStake>({ from: pool.address, to: validator, error: ErrorsPool.PoolIsHalted });
+}
+
+get fun `test halted should not be able to lift with excessive value attached to RecoverStake`() {
+    val (elector, stakes, limits) = setupElector();
+
+    var (pool, _owner, _notOwner, validator) = setupDeployedPool();
+    val fatNm = testing.treasury("FatCat");
+    var lagreDepo = ton("100000");
+
+    assertPoolDepositInstant(pool, fatNm.address, lagreDepo);
+    lagreDepo -= DEPOSIT_GAS;
+    val stake = lagreDepo / 2;
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+        stake,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+        stake,
+    );
+
+    var res = pool.sendTextComment(
+        fatNm.address,
+        "w".beginParse(),
+        { value: WITHDRAWAL_GAS },
+    );
+    var poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
+
+    expect(pool.getPoolData().halted).toBeFalse();
+    waitTillRecovery(pool, validator, elector.address);
+    val excessiveValue = lagreDepo * 2;
+    res = pool.sendRecoverStakeCompat(validator, DEFAULT_QUERY_ID, { value: excessiveValue });
+
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+    expect(res).toNotHaveTx<PayoutBurnMessage>();
+
+    poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
+    expect(poolAfter.halted).toBeTrue();
+}
+
+get fun `test halted should not be able to lift with excessive value attached to RecoverStakeUnrestricted`() {
+    val (elector, stakes, limits) = setupElector();
+
+    var (pool, _owner, _notOwner, validator) = setupDeployedPool();
+    val fatNm = testing.treasury("FatCat");
+    var lagreDepo = ton("100000");
+
+    assertPoolDepositInstant(pool, fatNm.address, lagreDepo);
+    lagreDepo -= DEPOSIT_GAS;
+    val stake = lagreDepo / 2;
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+        stake,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+        stake,
+    );
+
+    var res = pool.sendTextComment(
+        fatNm.address,
+        "w".beginParse(),
+        { value: WITHDRAWAL_GAS },
+    );
+    var poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
+
+    expect(pool.getPoolData().halted).toBeFalse();
+    waitTillRecovery(pool, validator, elector.address);
+    val excessiveValue = lagreDepo * 2;
+    res = pool.sendRecoverStakeUnrestricted(
+        validator,
+        DEFAULT_QUERY_ID,
+        validator,
+        ton("1"),
+        { value: excessiveValue },
+    );
+
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+    expect(res).toNotHaveTx<PayoutBurnMessage>();
+
+    poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
+    expect(poolAfter.halted).toBeTrue();
+}
+
+get fun `test halted should not be able to lift with excessive value attached to reward withdrawal`() {
+    val (elector, stakes, limits) = setupElector();
+
+    var (pool, owner, _notOwner, validator) = setupDeployedPool();
+    val fatNm = testing.treasury("FatCat");
+    val simpleFolk = testing.treasury("peasant");
+    var lagreDepo = ton("100000");
+    var smallDepo = lagreDepo / 10;
+
+    assertPoolDepositInstant(pool, fatNm.address, lagreDepo);
+    assertPoolDepositInstant(pool, simpleFolk.address, smallDepo);
+    lagreDepo -= DEPOSIT_GAS;
+    val stake = lagreDepo / 2;
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+        stake,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+        stake,
+    );
+
+    var res = waitAndRecoverStake(pool, validator, elector.address);
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+
+    // acrued some reward
+    expect(pool.getNominatorData(simpleFolk.address.getHash()).reward).toBeGreater(0);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+        stake,
+    );
+    res = pool.sendTextComment(
+        fatNm.address,
+        "w".beginParse(),
+        { value: WITHDRAWAL_GAS },
+    );
+    var poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(lagreDepo);
+
+    res = waitAndRecoverStake(pool, validator, elector.address);
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+
+    poolAfter = pool.getPoolData();
+    expect(poolAfter.halted).toBeTrue();
+    expect(poolAfter.roundClosed).toBeFalse();
+
+    runElections(elector, stakes, limits);
+
+    val excessiveValue = lagreDepo * 2;
+    res = pool.sendTextComment(simpleFolk.address, "r".beginParse(), { value: excessiveValue });
+    poolAfter = pool.getPoolData();
+    expect(poolAfter.halted).toBeTrue();
+    // Round closed again, but halted is not lifted
+    expect(poolAfter.roundClosed).toBeTrue();
 }
 
 get fun `test deposit should be able to rotate round if vset is changed`() {
