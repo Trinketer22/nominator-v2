@@ -25,7 +25,7 @@ fun main() {
         println("Pool {} has no registered validators.", pool.address);
         return;
     }
-    val validatorAddr = validator!;
+    val validatorAddr = validator;
 
     val limitOpt = promptValidatorLimit();
     if (limitOpt == null) {
@@ -33,7 +33,7 @@ fun main() {
             "A per-validator limit must be selected (ton or share); 'none' clears the limit and is not supported by UpdateLimits (ValidatorSpecific)",
         );
     }
-    val limit = limitOpt!;
+    val limit = limitOpt;
 
     val queryId = (env<int>("QUERY_ID") ?? 1) as uint64;
     val value = promptCoins("MSG_VALUE", "Message value (TON):", "1");
@@ -78,10 +78,10 @@ fun main() {
             ),
         );
     }
-    val storedLimit = rec!.limit;
+    val storedLimit = rec.limit;
 
     val expectedLimitCell = (limit as ValidatorLimit).toCell();
-    val applied = storedLimit != null && storedLimit!.toCell().hash() == expectedLimitCell.hash();
+    val applied = storedLimit != null && storedLimit.toCell().hash() == expectedLimitCell.hash();
 
     if (applied) {
         println("OK: per-validator limit updated for {} on pool {}", validator, pool.address);

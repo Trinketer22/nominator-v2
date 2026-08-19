@@ -235,7 +235,7 @@ fun PendingOps.addPending(mutate self, owner: address): uint64 {
             self.isWithdraw,
         ).toCell();
         self.next = AutoDeployAddress {
-            stateInit: self.nextStateInit!,
+            stateInit: self.nextStateInit,
             toShard: { closeTo: contract.getAddress(), fixedPrefixLength: 4 },
         }.calculateAddress();
     }
@@ -243,7 +243,7 @@ fun PendingOps.addPending(mutate self, owner: address): uint64 {
     self.prev = self.cur;
     self.cur = self.next;
 
-    val curStateInit = self.nextStateInit!;
+    val curStateInit = self.nextStateInit;
 
     self.nextStateInit = calculateItemStateInit(
         self.index + 1,
@@ -251,7 +251,7 @@ fun PendingOps.addPending(mutate self, owner: address): uint64 {
         self.isWithdraw,
     ).toCell();
     self.next = AutoDeployAddress {
-        stateInit: self.nextStateInit!,
+        stateInit: self.nextStateInit,
         toShard: { closeTo: contract.getAddress(), fixedPrefixLength: 4 },
     }.calculateAddress();
 

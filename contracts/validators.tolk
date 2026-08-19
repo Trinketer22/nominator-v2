@@ -252,7 +252,7 @@ fun ValidatorsData.rotateRound(
         self.curRound = curRound!.toCell();
     }
     if (updatedPrev) {
-        self.prevRound = prevRound!.toCell();
+        self.prevRound = prevRound.toCell();
     }
 
     return rotationStatus;
@@ -400,7 +400,7 @@ fun Validator.allUsageRecords(
         val proxyAddrHash = self.getProxyByParity(bitIdx);
         curUsage = ValidatorUsageStats {
             proxy: proxyAddrHash,
-            usage: curRound.users.mustGet(proxyAddrHash, ErrorsPool.UsageRecordNotFound)!,
+            usage: curRound.users.mustGet(proxyAddrHash, ErrorsPool.UsageRecordNotFound),
         };
     }
     bitIdx = (bitIdx << 1) % 3;
@@ -408,7 +408,7 @@ fun Validator.allUsageRecords(
         val proxyAddrHash = self.getProxyByParity(bitIdx);
         prevUsage = ValidatorUsageStats {
             proxy: proxyAddrHash,
-            usage: prevRound.users.mustGet(proxyAddrHash, ErrorsPool.UsageRecordNotFound)!,
+            usage: prevRound.users.mustGet(proxyAddrHash, ErrorsPool.UsageRecordNotFound),
         };
     }
 

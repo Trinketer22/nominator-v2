@@ -160,16 +160,16 @@ fun printValidatorInfo(pool: Pool, validator: address, poolData: Storage) {
         println("Validator not found in pool");
         return;
     }
-    val vd = valData!;
+    val vd = valData;
 
     println("Banned:        {}", vd.isBanned);
     println("Usage state:   {}", vd.usageState);
     println("Round parity:  {}", vd.roundParity);
     if (vd.evenProxy != null) {
-        println("Even proxy:    {}", vd.evenProxy!);
+        println("Even proxy:    {}", vd.evenProxy);
     }
     if (vd.oddProxy != null) {
-        println("Odd proxy:     {}", vd.oddProxy!);
+        println("Odd proxy:     {}", vd.oddProxy);
     }
     if (vd.limit != null) {
         match (vd.limit) {
@@ -198,7 +198,7 @@ fun printValidatorInfo(pool: Pool, validator: address, poolData: Storage) {
     }
 
     if (info != null) {
-        val i = info!;
+        val i = info;
         println("Stakeable:     {:gram}", i.stakeable);
         println("Round index:   {}", i.roundIndex);
         println("Rotated:       {}", i.rotated);
@@ -216,30 +216,30 @@ fun printValidatorInfo(pool: Pool, validator: address, poolData: Storage) {
     println("");
     println("=== Persisted rotation data (from get_pool_data) ===");
     if (vd.evenProxy != null) {
-        printPersistedRotationInfo("curRound (even proxy)", vd.evenProxy!, curRound);
+        printPersistedRotationInfo("curRound (even proxy)", vd.evenProxy, curRound);
     }
     if (vd.oddProxy != null) {
-        printPersistedRotationInfo("curRound (odd proxy)", vd.oddProxy!, curRound);
+        printPersistedRotationInfo("curRound (odd proxy)", vd.oddProxy, curRound);
     }
     if (vd.evenProxy != null) {
-        printPersistedRotationInfo("prevRound (even proxy)", vd.evenProxy!, prevRound);
+        printPersistedRotationInfo("prevRound (even proxy)", vd.evenProxy, prevRound);
     }
     if (vd.oddProxy != null) {
-        printPersistedRotationInfo("prevRound (odd proxy)", vd.oddProxy!, prevRound);
+        printPersistedRotationInfo("prevRound (odd proxy)", vd.oddProxy, prevRound);
     }
 
     // Projected rotation data — from get_validator_info. Shown for reference
     // only, as it depends on blockchain.configParam(34) which is unreliable
     // off-chain (DEFAULT_CONFIG in acton script, latest config in tonlib).
     if (info != null) {
-        val i = info!;
+        val i = info;
         println("");
         println("=== Projected rotation data (from get_validator_info — unreliable off-chain) ===");
         if (i.usage.curRoundUsage != null) {
-            printProjectedRotationInfo("Current round usage", i.usage.curRoundUsage!);
+            printProjectedRotationInfo("Current round usage", i.usage.curRoundUsage);
         }
         if (i.usage.prevRoundUsage != null) {
-            printProjectedRotationInfo("Previous round usage", i.usage.prevRoundUsage!);
+            printProjectedRotationInfo("Previous round usage", i.usage.prevRoundUsage);
         }
     }
 }

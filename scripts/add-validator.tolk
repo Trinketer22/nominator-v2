@@ -72,7 +72,7 @@ fun main() {
             ),
         );
     }
-    assertEqual(rec!.roundParity, roundAllowance, "validator.roundParity");
+    assertEqual(rec.roundParity, roundAllowance, "validator.roundParity");
 
     if (presentBefore) {
         // The contract refunds a duplicate add with ValidatorAlreadyExits.

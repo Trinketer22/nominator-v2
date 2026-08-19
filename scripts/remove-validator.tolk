@@ -23,7 +23,7 @@ fun main() {
         println("Pool {} has no registered validators.", pool.address);
         return;
     }
-    val validatorAddr = validator!;
+    val validatorAddr = validator;
     val queryId = (env<int>("QUERY_ID") ?? 1) as uint64;
     val value = promptCoins("MSG_VALUE", "Value to send with RemoveValidator (TON):", "1");
 
