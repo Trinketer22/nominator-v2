@@ -4,9 +4,9 @@ import "messages"
 import "types"
 
 contract Proxy {
-    author: ""
+    author: "TON Core"
     version: "1.0.0"
-    description: "My TON contract"
+    description: "Nominator pool proxy contract"
     incomingMessages: PoolMessages
     storage: ProxyStorage
 }
