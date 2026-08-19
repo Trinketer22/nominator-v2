@@ -156,6 +156,7 @@ fun runElections(
 fun setupElector(): (ElectorCode, StakesConfig, ParticipantsConfig) {
     val electorAddress = address("Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF");
     val (stakes, participantsLimits) = setupSimplifiedElections();
+    testing.setNow(0);
     setExpiredVset(testing.getConfig());
 
     testing.setShardAccount(
