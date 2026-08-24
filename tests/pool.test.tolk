@@ -1109,6 +1109,140 @@ get fun `test pool should halt if withdrawals can't be processed`() {
     assertPoolNewStake(validator, pool, elector, elections, stakes.minStake * 2);
 }
 
+get fun `test if withdrawal has failed, the nominator should be notified and able to retry immediately`() {
+    val (elector, stakes, limits) = setupElector();
+
+    var (pool, owner, _notOwner, validator) = setupDeployedPool();
+    val fatNm = testing.treasury("FatCat");
+
+    val ownerFunds = stakes.minStake * 2;
+    // Owner's cushion. Later it lets the second stake exceed the nominator funds,
+    // so the owner can overdraw the liquid balance while the stake is still recoverable
+    net.send(
+        owner.address,
+        createMessage({
+            bounce: false,
+            dest: pool.address,
+            value: ownerFunds,
+            body: AddFunds { queryId: DEFAULT_QUERY_ID },
+        }),
+    );
+
+    val stake = ton("100000");
+    assertPoolDepositInstant(pool, fatNm.address, stake);
+
+    // First stake locks the nominator funds in the elector
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+        stake,
+    );
+    // Second stake is covered by the owner's cushion and stays in the elector
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+        ownerFunds,
+    );
+
+    // Closed round forces the withdrawal into the pending queue
+    val (_, sharesBefore) = assertDelayedOperation(pool, fatNm.address, true);
+
+    waitTillRecovery(pool, validator, elector.address);
+
+    val validatorStatus = pool.getValidatorInfo(validator);
+    val expectedProxyHash = validatorStatus.usage.prevRoundUsage!.proxy;
+    val expectedProxy = address.fromWorkchainAndHash(MASTERCHAIN, expectedProxyHash);
+
+    val proxyParity = false;
+
+    // Recovering the stake kickstarts the payout chain.
+    val recoverIter = testing.createTraceIterationCursor(
+        expectedProxy,
+        createMessage<RecoverStakeOk>({
+            bounce: false,
+            dest: pool.address,
+            body: RecoverStakeOk {
+                queryId: DEFAULT_QUERY_ID,
+                remaining: ProxyResponseData {
+                    validator,
+                    parity: proxyParity,
+                }.toCell()
+                    .beginParse(),
+            },
+            value: stake,
+        }),
+    );
+
+    recoverIter.executeTill<PayoutBurnMessage>({ from: pool.address });
+
+    // Owner withdraws right in between, dropping the available balance below the pending payout
+    val poolBefore = pool.getPoolData();
+    val nominatorsBefore = poolBefore.nominators.load();
+    val fatNmBefore = nominatorsBefore.poolNominators.mustGet(fatNm.address, 42);
+
+    val ownerIter = testing.createTraceIterationCursor(
+        owner.address,
+        createMessage<OwnerWithdrawal>({
+            bounce: true,
+            dest: pool.address,
+            body: OwnerWithdrawal {
+                queryId: DEFAULT_QUERY_ID,
+                amount: ownerFunds,
+            },
+            value: ton("1"),
+        }),
+    );
+
+    val ownerRes = ownerIter.executeAllRemaining();
+    expect(ownerRes).toHaveSuccessfulTx<OwnerWithdrawalSuccess>({
+        from: pool.address,
+        to: owner.address,
+    });
+
+    // Burn notification arrives, pool can't afford the payout anymore
+    val recoverRes = recoverIter.executeAllRemaining();
+
+    // Payout is not settled, nominator is notified instead
+    expect(recoverRes).toNotHaveTx<WithdrawSuccess>({ from: pool.address, to: fatNm.address });
+    expect(recoverRes).toHaveTx({
+        from: pool.address,
+        to: fatNm.address,
+        value: 0,
+        body: (0 as uint32, "Withdrawal has failed, retry later").toCell(),
+    });
+
+    // Withdrawal is reset, but stays pending, so nominator can retry
+    val poolAfter = pool.getPoolData();
+    val nominatorsAfter = poolAfter.nominators.load();
+    val fatNmAfter = nominatorsAfter.poolNominators.mustGet(fatNm.address, 42);
+
+    expect(poolAfter.pendingWithdrawals).toEqual(fatNmBefore.pendingWithdrawal);
+    expect(poolAfter.nominatorsAmount).toEqual(poolBefore.nominatorsAmount);
+    expect(poolAfter.poolSupply).toEqual(poolBefore.poolSupply);
+    expect(nominatorsAfter.nmCount).toEqual(nominatorsBefore.nmCount);
+    expect(fatNmAfter.pendingWithdrawal).toEqual(fatNmBefore.pendingWithdrawal);
+    expect(fatNmAfter.withdrawalIndex).toEqual(0);
+
+    // Invariants still hold
+    assertPoolInvariants(pool);
+
+    // Make sure nominator can actually retry
+    var (_, sharesAfter) = assertDelayedOperation(pool, fatNm.address, true);
+    expect(sharesAfter).toEqual(sharesBefore);
+
+    expect(sharesAfter).toBeGreater(0);
+}
+
 get fun `test halted should not be able to lift with excessive value attached to updateVset`() {
     val (elector, stakes, limits) = setupElector();
 
