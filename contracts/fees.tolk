@@ -9,3 +9,4 @@ const PROXY_INIT_VALUE = ton("0.1")
 const PAYOUT_ITEM_BALANCE = ton("0.05")
 
 const RECOVER_STAKE_OK_GAS: int = 50000
+const SELF_UPDATE_VSET_GAS = 22000

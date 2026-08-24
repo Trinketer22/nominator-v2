@@ -553,12 +553,18 @@ fun onInternalMessage(in: InMessage) {
             }
         }
         UpdateVset => {
+            var status: RotationStatus;
+            var msgValue: int;
             var validators = storage.validators.load();
-            val status = validators.rotateRound(in.senderAddress, storage.roundIndex);
             val externalUpdate = in.senderAddress != contract.getAddress();
-            var msgValue = 0;
             if (externalUpdate) {
+                status = validators.rotateRound(in.senderAddress, storage.roundIndex);
                 msgValue = in.valueCoins;
+            } else {
+                // For self update case use quick variant with constant gas
+                status = validators.rotateRoundQuick(storage.roundIndex);
+                // This value will be excluded from the available balance during withdrawal processing
+                msgValue = calculateGasFee(BASECHAIN, SELF_UPDATE_VSET_GAS);
             }
 
             storage.finalizeRound(status, msgValue);
