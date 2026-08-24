@@ -1023,6 +1023,14 @@ fun onInternalMessage(in: InMessage) {
                     // Resetting the withrawal index will allow subsequent withdrawal
                     nmData.withdrawalIndex = 0;
                     nominators.poolNominators.set(msg.owner, nmData);
+                    val notificationMsg = createMessage({
+                        dest: msg.owner,
+                        bounce: false,
+                        value: 0,
+                        body: (0 as uint32, "Withdrawal has failed, retry later"),
+                    });
+
+                    notificationMsg.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_IGNORE_ERRORS);
                 }
             } else {
                 var nmData = nominators
