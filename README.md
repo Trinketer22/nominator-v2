@@ -556,14 +556,15 @@ All fees are defined in `contracts/fees.tolk`:
 | `POOL_MIN_STORAGE` | 10 TON | Normal pool storage reserve used by balance and solvency calculations. Emergency paths may spend into it. |
 | `PROXY_MIN_STORAGE` | 10 TON | Target storage reserve for each deployed validator proxy. Extreme recovery handling may spend into it. |
 | `DEPOSIT_GAS` | 0.2 TON | Amount excluded from every deposit before shares are calculated. It funds execution; unused message value is normally returned with the notification. |
-| `WITHDRAWAL_GAS` | 0.2 TON | Minimum inbound value when a withdrawal enters the pending queue. The later burn chain is started separately with `PAYOUT_ITEM_BALANCE`; direct withdrawals do not have this gate. |
+| `WITHDRAWAL_GAS` | 0.2 TON | Minimum inbound value when a withdrawal enters the pending queue. The later burn chain is started separately with `PAYOUT_CHAIN_START`; direct withdrawals do not have this gate. |
 | `NEW_VALIDATOR_FEE` | 0.1 TON | Gas budget deducted when adding a new validator. |
-| `PAYOUT_ITEM_BALANCE` | 0.05 TON | Forwarded to each PayoutItem on deployment. |
+| `PAYOUT_ITEM_BALANCE` | 0.05 TON | Forwarded to each PayoutItem on deployment. The item keeps ~0.04 TON of it as storage; the rest is refunded to the nominator. |
+| `PAYOUT_CHAIN_START` | 0.011 TON | Attached to the first `PayoutBurnMessage` that kickstarts a payout chain. Items exchange 0.01 TON between each other and return their remaining balance to the pool with the burn notification. |
 | `REFUND_THRESHOLD` | 1 TON | Caps the owner-only bonus component and the `NewStake` value retained for refund/gas handling. |
 | `MAX_RECOVERY_VALUE` | 1 TON | Caps funding forwarded from the pool to the proxy/elector for a recovery request. It does not cap recovered stake returned to the pool. |
 | `PROXY_INIT_VALUE` | 0.1 TON | Extra value attached on top of `PROXY_MIN_STORAGE` when deploying a validator proxy, to cover init gas. |
 
-In addition, `fees.tolk` defines a gas-budget *constant* (in gas units, not TON) used by compute-path checks: `RECOVER_STAKE_OK_GAS`. This is an internal compute budget, not a user-facing fee.
+In addition, `fees.tolk` defines gas-budget *constants* (in gas units, not TON) used by compute-path checks: `RECOVER_STAKE_OK_GAS` and `SELF_UPDATE_VSET_GAS`. These are internal compute budgets, not user-facing fees.
 
 ---
 
