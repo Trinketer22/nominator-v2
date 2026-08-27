@@ -264,10 +264,10 @@ fun Storage.finalizeRound(mutate self, rotationStatus: RotationStatus, msgValue:
                 self.pendingWithdrawals,
             );
             if (pendingStatus.withdrawn > 0) {
-                sentTotal += PAYOUT_ITEM_BALANCE;
+                sentTotal += PAYOUT_CHAIN_START;
             }
             if (pendingStatus.deposited > 0) {
-                sentTotal += PAYOUT_ITEM_BALANCE;
+                sentTotal += PAYOUT_CHAIN_START;
             }
             self.halted = pendingStatus.halted;
             if (!pendingStatus.halted) {

@@ -150,8 +150,6 @@ fun NominatorsData.processPending(
     var halted = false;
     var withdrawn: coins = 0;
     var deposited: coins = 0;
-    // Otherwise we wouldn't be here
-    var payoutCount = 1;
 
     // If there is remotely not enough balance to fail the chain start - halt
     if (availableBalance < PAYOUT_ITEM_BALANCE * 3) {
@@ -163,15 +161,11 @@ fun NominatorsData.processPending(
     }
     if (self.pendingWithdrawals != null) {
         val withdrawals = self.pendingWithdrawals.load();
-        if (self.pendingDeposits != null) {
-            payoutCount += 1;
-        }
         (withdrawn, halted) = withdrawals.process(
             availableBalance,
             supply,
             total,
             pendingWithdrawals,
-            payoutCount,
         );
         if (!halted) {
             self.pendingWithdrawals = null;
@@ -184,7 +178,6 @@ fun NominatorsData.processPending(
             supply,
             total,
             pendingDeposits,
-            payoutCount,
         );
         if (!halted) {
             self.pendingDeposits = null;
@@ -206,12 +199,11 @@ fun PendingOps.process(
     supply: coins,
     total: coins,
     opAggregate: coins,
-    payoutCount: int,
 ): (coins, bool) {
     var processedAmount: coins;
     if (self.isWithdraw) {
         processedAmount = calcSharePrice(opAggregate, total, supply);
-        if (availableBalance - PAYOUT_ITEM_BALANCE * payoutCount < processedAmount) {
+        if (availableBalance < processedAmount) {
             return (0 as coins, true);
         }
     } else {
@@ -224,7 +216,7 @@ fun PendingOps.process(
         val burnMessage = createMessage({
             bounce: false,
             dest: self.cur!,
-            value: PAYOUT_ITEM_BALANCE, // Item balance - fwd fees is more than enough to cover gas
+            value: PAYOUT_CHAIN_START, // 0.011 - fwd fee roughly 0.01, which is a default item->item burn value.
             body: PayoutBurnMessage {
                 queryId: blockchain.logicalTime(),
                 distribution: Distribution {
