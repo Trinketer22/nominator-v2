@@ -1217,7 +1217,9 @@ get fun `test if withdrawal has failed, the nominator should be notified and abl
     expect(recoverRes).toHaveTx({
         from: pool.address,
         to: fatNm.address,
-        value: 0,
+        value: fun(value) {
+            return value < ton("0.05") && value > 0;
+        },
         body: (0 as uint32, "Withdrawal has failed, retry later").toCell(),
     });
 

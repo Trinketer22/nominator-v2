@@ -1036,7 +1036,9 @@ fun onInternalMessage(in: InMessage) {
                         body: (0 as uint32, "Withdrawal has failed, retry later"),
                     });
 
-                    notificationMsg.send(SEND_MODE_PAY_FEES_SEPARATELY | SEND_MODE_IGNORE_ERRORS);
+                    notificationMsg.send(
+                        SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE | SEND_MODE_IGNORE_ERRORS,
+                    );
                 }
             } else {
                 var nmData = nominators
