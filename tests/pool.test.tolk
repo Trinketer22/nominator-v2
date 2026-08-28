@@ -1109,8 +1109,6 @@ get fun `test pool should halt if withdrawals can't be processed`() {
     assertPoolNewStake(validator, pool, elector, elections, stakes.minStake * 2);
 }
 
-// Not possible anymore when withdrawals value is excluded from owner liquid balance
-@test.skip
 get fun `test if withdrawal has failed, the nominator should be notified and able to retry immediately`() {
     val (elector, stakes, limits) = setupElector();
 
@@ -1187,7 +1185,43 @@ get fun `test if withdrawal has failed, the nominator should be notified and abl
 
     recoverIter.executeTill<PayoutBurnMessage>({ from: pool.address });
 
-    // Owner withdraws right in between, dropping the available balance below the pending payout
+    // Right in between, the owner cushion comes back slashed in half.
+    // The loss is shared with the nominators, so nominatorsAmount drops,
+    // and with it the pending withdrawals estimate in the owner liquid gate
+    val nmAmountBeforeSlash = pool.getPoolData().nominatorsAmount;
+
+    val validatorStatusAfter = pool.getValidatorInfo(validator);
+    val slashedProxyHash = validatorStatusAfter.usage.prevRoundUsage!.proxy;
+    // Two consecutive stakes always rotate between the even and the odd proxy
+    val slashedParity = slashedProxyHash != expectedProxyHash;
+
+    val slashIter = testing.createTraceIterationCursor(
+        address.fromWorkchainAndHash(MASTERCHAIN, slashedProxyHash),
+        createMessage<RecoverStakeOk>({
+            bounce: false,
+            dest: pool.address,
+            body: RecoverStakeOk {
+                queryId: DEFAULT_QUERY_ID,
+                remaining: ProxyResponseData {
+                    validator,
+                    parity: slashedParity,
+                }.toCell()
+                    .beginParse(),
+            },
+            value: ownerFunds / 2,
+        }),
+    );
+
+    val slashRes = slashIter.executeAllRemaining();
+    expect(slashRes).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+    expect(pool.getPoolData().nominatorsAmount).toBeLess(nmAmountBeforeSlash);
+
+    // Owner withdraws right in between. The gate reserves the pending payout at the
+    // post-slash spot rate, while the notification still bills at the pre-slash frozen
+    // rate, so the nominators' half of the loss (~5000) plus the punishment reserve
+    // slack (~590) becomes withdrawable. Any amount within (~10600, ~15600) both passes
+    // the gate and leaves the pool unable to afford the frozen payout; the midpoint
+    // keeps ~2400 margin from either bound
     val poolBefore = pool.getPoolData();
     val nominatorsBefore = poolBefore.nominators.load();
     val fatNmBefore = nominatorsBefore.poolNominators.mustGet(fatNm.address, 42);
@@ -1199,7 +1233,7 @@ get fun `test if withdrawal has failed, the nominator should be notified and abl
             dest: pool.address,
             body: OwnerWithdrawal {
                 queryId: DEFAULT_QUERY_ID,
-                amount: ownerFunds,
+                amount: ton("13000"),
             },
             value: ton("1"),
         }),
@@ -1211,7 +1245,7 @@ get fun `test if withdrawal has failed, the nominator should be notified and abl
         to: owner.address,
     });
 
-    // Burn notification arrives, pool can't afford the payout anymore
+    // Burn notification arrives, pool can't afford the frozen payout anymore
     val recoverRes = recoverIter.executeAllRemaining();
 
     // Payout is not settled, nominator is notified instead
