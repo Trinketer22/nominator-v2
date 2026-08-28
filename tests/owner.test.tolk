@@ -1020,3 +1020,166 @@ get fun `test owner should be able to withdraw it's share, and pending deposits 
         );
     }
 }
+
+get fun `test owner should not be able to withdraw liquidity reserved for pending payouts`() {
+    val (elector, stakes, limits) = setupElector();
+
+    val (pool, owner, _notOwner, validator) = setupDeployedPool();
+    val fatNm = testing.treasury("FatCat");
+
+    val ownerFunds = stakes.minStake * 2;
+    // Owner's cushion. It lets the second stake exceed the nominator funds,
+    // so the owner equity ends up locked in the elector, while the recovered
+    // nominator stake arrives as a liquid balance
+    net.send(
+        owner.address,
+        createMessage({
+            bounce: false,
+            dest: pool.address,
+            value: ownerFunds,
+            body: AddFunds { queryId: DEFAULT_QUERY_ID },
+        }),
+    );
+
+    val stake = ton("100000");
+    assertPoolDepositInstant(pool, fatNm.address, stake);
+
+    // First stake locks the nominator funds in the elector
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+        stake,
+    );
+    // Second stake is covered by the owner's cushion and stays in the elector
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+        ownerFunds,
+    );
+
+    // Closed round forces the withdrawal into the pending queue
+    assertDelayedOperation(pool, fatNm.address, true);
+
+    waitTillRecovery(pool, validator, elector.address);
+
+    val validatorStatus = pool.getValidatorInfo(validator);
+    val expectedProxyHash = validatorStatus.usage.prevRoundUsage!.proxy;
+    val expectedProxy = address.fromWorkchainAndHash(MASTERCHAIN, expectedProxyHash);
+
+    val proxyParity = false;
+
+    // Recovering the stake kickstarts the payout chain
+    val recoverIter = testing.createTraceIterationCursor(
+        expectedProxy,
+        createMessage<RecoverStakeOk>({
+            bounce: false,
+            dest: pool.address,
+            body: RecoverStakeOk {
+                queryId: DEFAULT_QUERY_ID,
+                remaining: ProxyResponseData {
+                    validator,
+                    parity: proxyParity,
+                }.toCell()
+                    .beginParse(),
+            },
+            value: stake,
+        }),
+    );
+
+    recoverIter.executeTill<PayoutBurnMessage>({ from: pool.address });
+
+    // Owner tries to withdraw right in between the chain start and the burn notification.
+    // Pending payouts are carved out of the liquid balance, so this attempt has to fail
+    val stateBefore = getAccountData(pool.address);
+    val balanceBefore = testing.getAccountBalance(pool.address);
+
+    val ownerIter = testing.createTraceIterationCursor(
+        owner.address,
+        createMessage<OwnerWithdrawal>({
+            bounce: true,
+            dest: pool.address,
+            body: OwnerWithdrawal {
+                queryId: DEFAULT_QUERY_ID,
+                amount: ownerFunds,
+            },
+            value: ton("1"),
+        }),
+    );
+
+    val ownerRes = ownerIter.executeAllRemaining();
+    expect(ownerRes).toHaveRefund<OwnerWithdrawal>({
+        from: pool.address,
+        to: owner.address,
+        initialBalance: balanceBefore,
+        previousState: stateBefore,
+        error: ErrorsPool.NotEnoughPoolBalance,
+    });
+    expect(ownerRes).toNotHaveTx<OwnerWithdrawalSuccess>({
+        from: pool.address,
+        to: owner.address,
+    });
+
+    // Burn notification arrives, and the payout settles, since the liquid balance is intact
+    val recoverRes = recoverIter.executeAllRemaining();
+
+    expect(recoverRes).toHaveSuccessfulTx<WithdrawSuccess>({
+        from: pool.address,
+        to: fatNm.address,
+    });
+
+    val poolAfterPayout = pool.getPoolData();
+    expect(poolAfterPayout.pendingWithdrawals).toEqual(0);
+    expect(poolAfterPayout.halted).toBeFalse();
+    expect(poolAfterPayout.nominators.load().nmCount).toEqual(0);
+
+    assertPoolInvariants(pool);
+
+    // Owner's cushion is still locked in the elector, recover it next
+    val statusAfterPayout = pool.getValidatorInfo(validator);
+    val cushionProxyHash = statusAfterPayout.usage.prevRoundUsage!.proxy;
+    // Two consecutive stakes always rotate between the even and the odd proxy
+    val cushionParity = cushionProxyHash != expectedProxyHash;
+
+    val cushionRes = net.send(
+        address.fromWorkchainAndHash(MASTERCHAIN, cushionProxyHash),
+        createMessage<RecoverStakeOk>({
+            bounce: false,
+            dest: pool.address,
+            body: RecoverStakeOk {
+                queryId: DEFAULT_QUERY_ID,
+                remaining: ProxyResponseData {
+                    validator,
+                    parity: cushionParity,
+                }.toCell()
+                    .beginParse(),
+            },
+            value: ownerFunds,
+        }),
+    );
+    expect(cushionRes).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+
+    // With no pending payouts left, the owner can withdraw the same amount again
+    val res = pool.sendOwnerWithdrawal(
+        owner.address,
+        DEFAULT_QUERY_ID,
+        ownerFunds,
+        { value: ton("1") },
+    );
+
+    expect(res).toHaveTx<OwnerWithdrawalSuccess>({
+        from: pool.address,
+        to: owner.address,
+    });
+
+    assertPoolInvariants(pool);
+}

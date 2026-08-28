@@ -1109,6 +1109,8 @@ get fun `test pool should halt if withdrawals can't be processed`() {
     assertPoolNewStake(validator, pool, elector, elections, stakes.minStake * 2);
 }
 
+// Not possible anymore when withdrawals value is excluded from owner liquid balance
+@test.skip
 get fun `test if withdrawal has failed, the nominator should be notified and able to retry immediately`() {
     val (elector, stakes, limits) = setupElector();
 
