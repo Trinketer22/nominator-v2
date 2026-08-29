@@ -1103,6 +1103,10 @@ get fun `test owner should not be able to withdraw liquidity reserved for pendin
     val stateBefore = getAccountData(pool.address);
     val balanceBefore = testing.getAccountBalance(pool.address);
 
+    val ownerLiquid = pool.getSharesInfo().liquidOwnerShare;
+    expect(ownerLiquid).toBeLess(ownerFunds);
+    expect(getMaxOwnerShare(pool)).toEqual(ownerLiquid);
+
     val ownerIter = testing.createTraceIterationCursor(
         owner.address,
         createMessage<OwnerWithdrawal>({

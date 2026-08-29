@@ -818,6 +818,7 @@ get fun `test deep losses should put pool nm operations into insolvent state`() 
     val used = valInfo.usage.prevRoundUsage!.usage.tonUsed;
     val expectedProxy = valInfo.usage.prevRoundUsage!.proxy;
     val returnedStake = mulDivFloor(used, 9000, 10000);
+    var sharesBefore = pool.getSharesInfo();
     var res = net.send(
         address.fromWorkchainAndHash(MASTERCHAIN, expectedProxy),
         createMessage({
@@ -842,6 +843,16 @@ get fun `test deep losses should put pool nm operations into insolvent state`() 
     poolAfter.validators.load().stakeUsed;
     // Less than total nominators obligations
     expect(poolBalance).toBeLess(poolAfter.nominatorsAmount);
+
+    var sharesAfter = pool.getSharesInfo();
+    expect(sharesAfter.nominatorsAmount).toBeLess(sharesBefore.nominatorsAmount);
+    expect(sharesAfter.poolSupply).toEqual(sharesBefore.poolSupply);
+    expect(sharesAfter.ownerShareValue).toBeLess(sharesBefore.ownerShareValue);
+    expect(sharesAfter.ownerShareValue).toEqual(0);
+    expect(sharesAfter.liquidOwnerShare).toBeLess(sharesBefore.liquidOwnerShare);
+    expect(sharesAfter.liquidOwnerShare).toEqual(0);
+
+    sharesBefore = sharesAfter;
 
     val stateBefore = getAccountData(pool.address);
     // So no withdrawals accepted
@@ -931,6 +942,12 @@ get fun `test deep losses should put pool nm operations into insolvent state`() 
     val balanceAfter = testing.getAccountBalance(pool.address);
     expect(balanceAfter).toBeGreater(poolAfter.nominatorsAmount);
 
+    sharesAfter = pool.getSharesInfo();
+    expect(sharesAfter.nominatorsAmount).toBeGreater(sharesBefore.nominatorsAmount);
+    expect(sharesAfter.poolSupply).toEqual(sharesBefore.poolSupply);
+    expect(sharesAfter.ownerShareValue).toBeGreater(sharesBefore.ownerShareValue);
+    expect(sharesAfter.liquidOwnerShare).toBeGreater(sharesBefore.liquidOwnerShare);
+
     // All operations should work again
     asssertSimpleWithdawal(pool, testNm);
     val depositor = testing.treasury("Depositor");
@@ -997,6 +1014,7 @@ get fun `test pool should halt if withdrawals can't be processed`() {
     assertPoolNewStake(validator, pool, elector, elections, stake);
     //runRound(pool, elector, stakes, limits, validator);
 
+    val sharesBefore = pool.getSharesInfo();
     // Now in the same round FatCat for some reason withdraws
     var res = pool.sendTextComment(
         fatNm.address,
@@ -1040,12 +1058,6 @@ get fun `test pool should halt if withdrawals can't be processed`() {
 
     // Witdhrawals should go pending
     assertDelayedOperation(pool, simpleFolk.address, true);
-    /*
-    res = pool.sendTextComment(simpleFolk.address, "w".beginParse(), { value: ton("1") });
-    expect(
-        res,
-    ).toHaveRefund<TextComment>({ from: pool.address, to: simpleFolk.address, error: ErrorsPool.PoolIsHalted, previousState: stateBefore });
-    */
 
     // And no one should be able to deposit either
 
@@ -1053,16 +1065,6 @@ get fun `test pool should halt if withdrawals can't be processed`() {
 
     // Deposit goes pending because the round rotated (hasPrevUsage), even while halted
     assertDelayedOperation(pool, depositor.address, false, smallDepo);
-    /*
-    res = pool.sendTextComment(
-        depositor.address,
-        "d".beginParse(),
-        { value: smallDepo + DEPOSIT_GAS },
-    );
-    expect(
-        res,
-    ).toHaveRefund<TextComment>({ from: pool.address, to: depositor.address, error: ErrorsPool.PoolIsHalted, previousState: stateBefore });
-    */
 
     val stateBefore = getAccountData(pool.address);
     // Key change here that it is not rejected by halted state anymore
@@ -1072,6 +1074,16 @@ get fun `test pool should halt if withdrawals can't be processed`() {
     ).toHaveRefund<TextComment>({ from: pool.address, to: simpleFolk.address, error: ErrorsPool.RewardIsBelowMinimal, previousState: stateBefore });
 
     // And owner shouldn't be able to withdraw either
+    var sharesAfter = pool.getSharesInfo();
+    expect(sharesAfter.nominatorsAmount).toEqual(sharesBefore.nominatorsAmount);
+    expect(sharesAfter.poolSupply).toEqual(sharesBefore.poolSupply);
+    // Storage fees may slighdly dig in the balance
+    expect(sharesAfter.ownerShareValue as int).toBeApproxEqAbs(
+        sharesBefore.ownerShareValue,
+        ton("0.001"),
+    );
+    expect(sharesAfter.liquidOwnerShare).toEqual(0);
+
     res = pool.sendOwnerWithdrawal(owner.address, DEFAULT_QUERY_ID, ton("1"), { value: ton("1") });
     expect(
         res,
@@ -1082,8 +1094,25 @@ get fun `test pool should halt if withdrawals can't be processed`() {
     runElections(elector, stakes, limits);
     pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: ton("1") });
 
-    res = waitAndRecoverStake(pool, validator, elector.address);
-    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+    waitTillRecovery(pool, validator, elector.address);
+    val recCursor = testing.createTraceIterationCursor(
+        validator,
+        createMessage<RecoverStakeCompat>({
+            bounce: true,
+            dest: pool.address,
+            body: RecoverStakeCompat { queryId: DEFAULT_QUERY_ID },
+            value: ton("1"),
+        }),
+    );
+
+    recCursor.executeTill<RecoverStakeOk>({ to: pool.address, aborted: false });
+    val midShare = pool.getSharesInfo();
+    expect(pool.getValidatorInfo(validator).stakeable).toEqual(0);
+
+    expect(midShare.ownerShareValue).toBeGreater(sharesAfter.ownerShareValue);
+    expect(midShare.liquidOwnerShare).toEqual(0);
+
+    res = recCursor.executeAllRemaining();
     // println(res);
 
     poolAfter = pool.getPoolData();
@@ -1098,6 +1127,8 @@ get fun `test pool should halt if withdrawals can't be processed`() {
             return amount >= lagreDepo;
         },
     });
+
+    expect(pool.getSharesInfo().liquidOwnerShare).toBeGreater(sharesBefore.liquidOwnerShare);
 
     // Withdrawals work again
     asssertSimpleWithdawal(pool, depositor.address);

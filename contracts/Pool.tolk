@@ -1240,6 +1240,38 @@ get fun get_nominator_minimal_stake(): GetMinStake {
     return { minStake: nominators.minStake, minExpectedValue: nominators.minStake + DEPOSIT_GAS };
 }
 
+get fun get_shares_info(): GetSharesInfoResult {
+    val storage = lazy Storage.load();
+    val validators = lazy storage.validators.load();
+    val withdrawalsEst = calcSharePrice(
+        storage.pendingWithdrawals,
+        storage.nominatorsAmount,
+        storage.poolSupply,
+    );
+
+    val availableBalance = contract.getOriginalBalance() - storage.pendingDeposits -
+    POOL_MIN_STORAGE;
+
+    val totalBalance = availableBalance + validators.stakeUsed;
+    val ownerShare = max(
+        totalBalance - storage.nominatorsAmount -
+        getMaxPunishmentInt(validators.minTonPerValidator) * validators.activeSlots,
+        0,
+    );
+    var liquid = max(min(ownerShare, availableBalance - withdrawalsEst), 0);
+    // assert mirror logic
+    if (storage.halted || totalBalance <= storage.nominatorsAmount) {
+        liquid = 0;
+    }
+
+    return {
+        nominatorsAmount: storage.nominatorsAmount,
+        poolSupply: storage.poolSupply,
+        ownerShareValue: ownerShare,
+        liquidOwnerShare: liquid,
+    };
+}
+
 // Recomputes cached aggregates from the primary nominator map and reports
 // whether they match the stored values. Read-only diagnostic — no assertion.
 // See PoolInvariants for the semantics of each field.

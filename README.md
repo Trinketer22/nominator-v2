@@ -584,6 +584,7 @@ The pool exposes several getters for off-chain queries. Only `owner()` and `get_
 | `get_limits_per_validator()` | `(coins, coins, int)` | `(minTonPerValidator, maxTonPerValidator, refundBonus)`. |
 | `get_nominator_minimal_stake()` | `GetMinStake` | `(minStake, minExpectedValue)` where `minExpectedValue = minStake + DEPOSIT_GAS`. |
 | `get_max_punishment(stake: int)` | `int` | Raises input below `minTonPerValidator` to that minimum, rejects input above `maxTonPerValidator`, and returns the config-40 maximum fine capped by stake. If config 40 is absent, the fallback is 101 TON. |
+| `get_shares_info()` | `GetSharesInfoResult` | Overview of pool shares: total nominator funds and share supply, the owner's equity, and how much of it the owner can withdraw right now. The withdrawable part is what remains after nominator liabilities, pending payouts, the storage reserve, and validator punishment reserves; it is zero while the pool is halted or insolvent. |
 | `get_pool_invariants()` | `PoolInvariants` | Audit/diagnostic getter that recomputes the cached nominator aggregates (share supply, pending deposits/withdrawals, nominator count) from the primary nominator map and reports whether they match the stored aggregates (`supplyMatch`, `pendingWithdrawalsMatch`, `pendingDepositsMatch`, `nmCountMatch`, `allMatch`). No assertion is performed — it reports only. Also exposes `nominatorsAmount` and a `projectedBalance` (`balance + stakeUsed - pendingDeposits - POOL_MIN_STORAGE`) for off-chain solvency monitoring, plus the recomputed values for debugging. |
 
 ---
