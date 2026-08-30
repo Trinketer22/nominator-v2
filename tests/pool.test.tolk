@@ -921,6 +921,23 @@ get fun `test deep losses should put pool nm operations into insolvent state`() 
         initialBalance: testing.getAccountBalance(pool.address),
         error: ErrorsPool.Insolvent,
     });
+
+    // Owner should not be able to evict nominator either.
+    val evictRes = pool.sendEvictNominator(
+        owner.address,
+        DEFAULT_QUERY_ID,
+        testNm,
+        { value: DEFAULT_MSG_VALUE },
+    );
+
+    expect(evictRes).toHaveRefund<EvictNominator>({
+        to: owner.address,
+        from: pool.address,
+        previousState: stateBefore,
+        initialBalance: testing.getAccountBalance(pool.address),
+        error: ErrorsPool.Insolvent,
+    });
+
     // Since owner share got hit, new stake should hit OwnerShareIsUndercapitalized
     val elections = announceElections(elector);
     assertNewStakeFailed(

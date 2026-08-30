@@ -243,5 +243,6 @@ add_funds#42a515de query_id:uint64 = AddFunds;
 owner_withdrawal#11c31b99 query_id:uint64 amount:Grams = OwnerWithdrawal;
 update_limits#f36da828 query_id:uint64 limit:UpdateLimit = UpdateLimits;
 update_nominators_whitelist#c2d9e5ad query_id:uint64 whitelist:(HashmapE 267 Bool) = UpdateNominatorsWhitelist;
+evict_nominator#a3210d03 query_id:uint64 address:MsgAddressInt = EvictNominator;
 owner_withdrawal_success#43921f80 query_id:uint64 = OwnerWithdrawalSuccess;
 round_info_message#e4649054 query_id:uint64 info:RoundInfo = RoundInfoMessage;

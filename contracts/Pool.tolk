@@ -275,6 +275,17 @@ fun onInternalMessage(in: InMessage) {
                 SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE,
             );
         }
+        EvictNominator => {
+            refundError(
+                in.senderAddress,
+                {
+                    op: opcode<EvictNominator>(),
+                    queryId: msg.queryId,
+                    errorCode: ErrorsPool.NotOwner,
+                },
+                SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE,
+            );
+        }
         UpdateNominatorsWhitelist => {
             refundError(
                 in.senderAddress,
