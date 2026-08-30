@@ -98,7 +98,7 @@ get fun `test chain of payout items could survive 5 years time and 10x gas price
         createMessage({
             dest: lastItem!,
             bounce: false,
-            value: PAYOUT_ITEM_BALANCE - calculateForwardFee(BASECHAIN, 0, 0),
+            value: PAYOUT_CHAIN_START - calculateForwardFee(BASECHAIN, 0, 0),
             body: PayoutBurnMessage {
                 queryId: DEFAULT_QUERY_ID,
                 distribution: { pendingShare: ton("1000"), pendingCoins: ton("20000") },

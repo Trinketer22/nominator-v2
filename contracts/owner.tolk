@@ -113,7 +113,11 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
                 assert(sender == storage.owner, ErrorsPool.NotOwner);
                 assert(!storage.halted, ErrorsPool.PoolIsHalted);
 
-                // pending withdrawals are alredy part of nominatorsAmount
+                val withdrawalsEst = calcSharePrice(
+                    storage.pendingWithdrawals,
+                    storage.nominatorsAmount,
+                    storage.poolSupply,
+                );
                 val pendingAmounts = storage.pendingDeposits;
 
                 val availableBalance = contract.getOriginalBalance() - value - pendingAmounts -
@@ -124,7 +128,7 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
 
                 val ownerShare = totalBalance - storage.nominatorsAmount -
                 getMaxPunishmentInt(validators.minTonPerValidator) * validators.activeSlots;
-                val withdrawable = min(ownerShare, availableBalance);
+                val withdrawable = min(ownerShare, availableBalance - withdrawalsEst);
                 assert(msg.amount <= withdrawable, ErrorsPool.NotEnoughPoolBalance);
                 reserveGramsOnBalance(
                     msg.amount,

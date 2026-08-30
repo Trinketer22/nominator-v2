@@ -173,7 +173,12 @@ fun NominatorsData.processPending(
     }
     if (self.pendingDeposits != null && !halted) {
         val deposits = self.pendingDeposits.load();
-        (deposited, halted) = deposits.process(availableBalance, supply, total, pendingDeposits);
+        (deposited, halted) = deposits.process(
+            availableBalance,
+            supply,
+            total,
+            pendingDeposits,
+        );
         if (!halted) {
             self.pendingDeposits = null;
         }
@@ -211,7 +216,7 @@ fun PendingOps.process(
         val burnMessage = createMessage({
             bounce: false,
             dest: self.cur!,
-            value: PAYOUT_ITEM_BALANCE, // Item balance - fwd fees is more than enough to cover gas
+            value: PAYOUT_CHAIN_START, // 0.011 - fwd fee roughly 0.01, which is a default item->item burn value.
             body: PayoutBurnMessage {
                 queryId: blockchain.logicalTime(),
                 distribution: Distribution {

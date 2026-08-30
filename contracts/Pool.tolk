@@ -264,10 +264,10 @@ fun Storage.finalizeRound(mutate self, rotationStatus: RotationStatus, msgValue:
                 self.pendingWithdrawals,
             );
             if (pendingStatus.withdrawn > 0) {
-                sentTotal += PAYOUT_ITEM_BALANCE;
+                sentTotal += PAYOUT_CHAIN_START;
             }
             if (pendingStatus.deposited > 0) {
-                sentTotal += PAYOUT_ITEM_BALANCE;
+                sentTotal += PAYOUT_CHAIN_START;
             }
             self.halted = pendingStatus.halted;
             if (!pendingStatus.halted) {
@@ -553,12 +553,18 @@ fun onInternalMessage(in: InMessage) {
             }
         }
         UpdateVset => {
+            var status: RotationStatus;
+            var msgValue: int;
             var validators = storage.validators.load();
-            val status = validators.rotateRound(in.senderAddress, storage.roundIndex);
             val externalUpdate = in.senderAddress != contract.getAddress();
-            var msgValue = 0;
             if (externalUpdate) {
+                status = validators.rotateRound(in.senderAddress, storage.roundIndex);
                 msgValue = in.valueCoins;
+            } else {
+                // For self update case use quick variant with constant gas
+                status = validators.rotateRoundQuick(storage.roundIndex);
+                // This value will be excluded from the available balance during withdrawal processing
+                msgValue = calculateGasFee(BASECHAIN, SELF_UPDATE_VSET_GAS);
             }
 
             storage.finalizeRound(status, msgValue);
@@ -1023,6 +1029,16 @@ fun onInternalMessage(in: InMessage) {
                     // Resetting the withrawal index will allow subsequent withdrawal
                     nmData.withdrawalIndex = 0;
                     nominators.poolNominators.set(msg.owner, nmData);
+                    val notificationMsg = createMessage({
+                        dest: msg.owner,
+                        bounce: false,
+                        value: 0,
+                        body: (0 as uint32, "Withdrawal has failed, retry later"),
+                    });
+
+                    notificationMsg.send(
+                        SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE | SEND_MODE_IGNORE_ERRORS,
+                    );
                 }
             } else {
                 var nmData = nominators
