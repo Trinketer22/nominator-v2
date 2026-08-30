@@ -195,6 +195,11 @@ struct (0xc2d9e5ad) UpdateNominatorsWhitelist {
     whitelist: map<address, bool>
 }
 
+struct (0xa3210d03) EvictNominator {
+    queryId: uint64
+    address: address
+}
+
 struct (0x43921f80) OwnerWithdrawalSuccess {
     queryId: uint64
 }

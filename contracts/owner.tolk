@@ -1,7 +1,10 @@
+import "@contracts/Pool"
 import "@contracts/errors"
 import "@contracts/fees"
 import "@contracts/messages"
+import "@contracts/nominators"
 import "@contracts/opcode"
+import "@contracts/storage"
 import "@contracts/utils"
 import "@contracts/validators"
 import "types"
@@ -9,6 +12,7 @@ import "types"
 type OwnerMessages =
     | AddValidator
     | UpdateLimits
+    | EvictNominator
     | UpdateNominatorsWhitelist
     | RemoveValidator
     | OwnerWithdrawal
@@ -203,6 +207,56 @@ fun processOwnerAction(msgSlice: slice, storage: Storage, sender: address, value
                     sender,
                     {
                         op: opcode<UpdateLimits>(),
+                        errorCode: e,
+                        queryId: msg.queryId,
+                    },
+                    SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE | SEND_MODE_IGNORE_ERRORS,
+                );
+            }
+        }
+        EvictNominator => {
+            try {
+                assert(sender == storage.owner, ErrorsPool.NotOwner);
+                var validators = lazy storage.validators.load();
+                val totalBalance = contract.getOriginalBalance() - value - storage.pendingDeposits -
+                POOL_MIN_STORAGE +
+                validators.stakeUsed;
+                assert(totalBalance > storage.nominatorsAmount, ErrorsPool.Insolvent);
+                storage.finalizeRound(validators.rotateRoundQuick(storage.roundIndex), value);
+                var nominators = lazy storage.nominators.load();
+
+                var requestedNm = nominators
+                    .poolNominators
+                    .mustGet(msg.address, ErrorsPool.DepositNotFound);
+                val shareValue = calcSharePrice(
+                    requestedNm.share,
+                    storage.nominatorsAmount,
+                    storage.poolSupply,
+                );
+                storage.pendingWithdrawals += requestedNm.share;
+                val pending = requestedNm.withdrawShare(
+                    msg.address,
+                    requestedNm.share,
+                    shareValue,
+                    true, // Guaranteed pending processing
+                    storage.roundIndex,
+                    value,
+                    nominators.pendingWithdrawals,
+                    sender,
+                );
+
+                // Just for internal consistency
+                assert(pending != null, ErrorsPool.MustBePending);
+                nominators.poolNominators.set(msg.address, requestedNm);
+                nominators.pendingWithdrawals = pending;
+                storage.validators = validators.toCell();
+                storage.nominators = nominators.toCell();
+                storage.save();
+            } catch (e) {
+                refundError(
+                    sender,
+                    {
+                        op: opcode<EvictNominator>(),
                         errorCode: e,
                         queryId: msg.queryId,
                     },

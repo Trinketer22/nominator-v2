@@ -13,6 +13,7 @@ import "@contracts/errors"
 import "@contracts/fees"
 import "@contracts/messages"
 import "@contracts/types"
+import "@contracts/utils"
 import "@contracts/validators"
 import "@tests/deploy-utils"
 import "@tests/elector-utils"
@@ -791,6 +792,221 @@ get fun `test owner should be able to update nominators whitelist`(testNm: addre
         initialBalance: balanceBefore,
     });
     assertPoolDepositInstant(pool, testNm, testAmount);
+}
+
+get fun `test owner should be able to evict nominator`() {
+    // Let's say the pool was initially deployed without a whitelist
+    val (pool, owner, _notOwner, _validator) = setupDeployedPool();
+    val evilNm = testing.treasury("3v111");
+
+    val evilDepo = (random.range(20) + 2) * ton("1000");
+
+    assertPoolDepositInstant(pool, evilNm.address, evilDepo);
+
+    val inValue = ton("1000");
+    val res = pool.sendEvictNominator(
+        owner.address,
+        DEFAULT_QUERY_ID,
+        evilNm.address,
+        { value: inValue },
+    );
+    expect(res).toNotHaveTx<WithdrawSuccess>({ to: evilNm.address });
+    val evictTx = res.findTransaction<EvictNominator>({ to: pool.address, aborted: false });
+    expect(evictTx).toBeNotNull();
+
+    val refundTx = res.findTransaction<RefundMessage>({ from: pool.address, to: owner.address });
+    expect(refundTx).toBeNotNull();
+
+    // Should refund most of the value to the owner
+    val refundValue = getInternalMessageInfo(refundTx!.loadInMsg<RefundMessage>().info).value.grams;
+    expect(refundValue as int).toBeApproxEqAbs(
+        inValue - PAYOUT_ITEM_BALANCE - getTxComputePh(evictTx!).gasFees,
+        ton("0.01"),
+    );
+
+    var nominatorsAfter = pool.getPoolData().nominators.load().poolNominators;
+    val nmAfter = nominatorsAfter.mustGet(evilNm.address);
+
+    expect(nmAfter.share).toEqual(0);
+    // Since no profit accrued shares/ton is 1/1
+    expect(nmAfter.pendingWithdrawal).toEqual(evilDepo - DEPOSIT_GAS);
+
+    updateVsetHash();
+
+    val updRes = pool.sendUpdateVset(owner.address, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+
+    val withdrawTx = updRes.findTransaction<WithdrawSuccess>({ from: pool.address, to: evilNm.address });
+    expect(withdrawTx).toBeNotNull();
+    val withdrawMsg = withdrawTx!.loadInMsg<WithdrawSuccess>();
+    expect(getInternalMessageValue(withdrawMsg.info).grams as int).toBeApproxEqAbs(
+        evilDepo - DEPOSIT_GAS,
+        ton("0.05"), // Item balance(0.04) + 0.01 - fees
+    );
+
+    nominatorsAfter = pool.getPoolData().nominators.load().poolNominators;
+
+    expect(nominatorsAfter.exists(evilNm.address)).toBeFalse();
+}
+
+get fun `test owner should not be able to evict a non-existent nominator`() {
+    val (pool, owner, _notOwner, _validator) = setupDeployedPool();
+    val randomNm = testing.treasury("Never deposited");
+
+    val balanceBefore = testing.getAccountBalance(pool.address);
+    val stateBefore = getAccountData(pool.address);
+
+    val res = pool.sendEvictNominator(
+        owner.address,
+        DEFAULT_QUERY_ID,
+        randomNm.address,
+        { value: DEFAULT_MSG_VALUE },
+    );
+
+    expect(res).toNotHaveTx({ to: randomNm.address });
+    expect(
+        res,
+    ).toHaveRefund<EvictNominator>({
+        to: owner.address,
+        from: pool.address,
+        error: ErrorsPool.DepositNotFound,
+        initialBalance: balanceBefore,
+        previousState: stateBefore,
+    });
+}
+
+get fun `test owner should not be able to evict nominator which already has pending payout`() {
+    val (elector, stakes, _limits) = setupElector();
+    val (pool, owner, _notOwner, validator) = setupDeployedPool();
+
+    val legitNm = testing.treasury("Legit");
+    val legitDepo = ton("200000");
+
+    assertPoolDepositInstant(pool, legitNm.address, legitDepo);
+
+    val expValue = legitDepo - DEPOSIT_GAS;
+    val elections = announceElections(elector);
+
+    assertPoolNewStake(validator, pool, elector, elections, expValue);
+    assertDelayedOperation(pool, legitNm.address, true);
+
+    val balanceBefore = testing.getAccountBalance(pool.address);
+    val stateBefore = getAccountData(pool.address);
+
+    val res = pool.sendEvictNominator(
+        owner.address,
+        DEFAULT_QUERY_ID,
+        legitNm.address,
+        { value: DEFAULT_MSG_VALUE },
+    );
+
+    expect(
+        res,
+    ).toHaveRefund<EvictNominator>({ to: owner.address, from: pool.address, error: ErrorsPool.WithdrawalAlreadyRequested, initialBalance: balanceBefore, previousState: stateBefore });
+}
+
+get fun `test eviction operation may rotate the round`() {
+    val (pool, owner, _notOwner, validator) = setupDeployedPool();
+
+    val legitNm = testing.treasury("Legit");
+    val legitDepo = ton("200000");
+
+    assertPoolDepositInstant(pool, legitNm.address, legitDepo);
+    val newVset = updateVsetHash() >> 128;
+    val poolBefore = pool.getPoolData();
+    expect(poolBefore.roundIndex).toEqual(0);
+    expect(poolBefore.validators.load().vsetHash).toNotEqual(newVset);
+
+    val res = pool.sendEvictNominator(
+        owner.address,
+        DEFAULT_QUERY_ID,
+        legitNm.address,
+        { value: DEFAULT_MSG_VALUE },
+    );
+
+    val poolAfter = pool.getPoolData();
+    expect(poolAfter.roundIndex).toEqual(1);
+    expect(poolAfter.validators.load().vsetHash).toEqual(newVset);
+
+    val payoutInit = res.findTransaction<PayoutInitMessage>({ from: pool.address });
+    expect(payoutInit).toBeNotNull();
+
+    val payoutMsg = payoutInit!.loadBody<PayoutInitMessage>();
+
+    expect(payoutMsg.roundIndex).toEqual(1);
+    expect(payoutMsg.owner).toEqual(legitNm.address);
+}
+
+get fun `test eviction operation bare round rotation effects such as halted`() {
+    val (elector, stakes, _limits) = setupElector();
+    val (pool, owner, _notOwner, validator) = setupDeployedPool();
+
+    val legitNm = testing.treasury("Legit");
+    val smallNm = testing.treasury("Little one");
+    val legitDepo = ton("200000");
+    val littleDepo = ton("20000");
+
+    assertPoolDepositInstant(pool, legitNm.address, legitDepo);
+    assertPoolDepositInstant(pool, smallNm.address, littleDepo);
+
+    val largeDepo = legitDepo - DEPOSIT_GAS;
+    val smallDepo = littleDepo - DEPOSIT_GAS;
+    val elections = announceElections(elector);
+
+    assertPoolNewStake(validator, pool, elector, elections, largeDepo);
+    // Since the stake is taken after rotation pool should get halted
+    assertDelayedOperation(pool, legitNm.address, true);
+
+    val newVset = updateVsetHash() >> 128;
+    val poolBefore = pool.getPoolData();
+    val validatorsBefore = poolBefore.validators.load();
+
+    val res = pool.sendEvictNominator(
+        owner.address,
+        DEFAULT_QUERY_ID,
+        smallNm.address,
+        { value: DEFAULT_MSG_VALUE },
+    );
+
+    val payoutInit = res.findTransaction<PayoutInitMessage>({ from: pool.address });
+    expect(payoutInit).toBeNotNull();
+
+    val payoutMsg = payoutInit!.loadBody<PayoutInitMessage>();
+
+    // Should end up in older queue, since it is not destroyed yet
+    expect(payoutMsg.roundIndex).toEqual(0);
+    expect(payoutMsg.owner).toEqual(smallNm.address);
+
+    val poolAfter = pool.getPoolData();
+    val validatorsAfter = poolAfter.validators.load();
+    expect(poolAfter.roundIndex).toEqual(1);
+    expect(poolAfter.halted).toBeTrue();
+    expect(validatorsAfter.vsetHash).toEqual(newVset);
+    expect(validatorsAfter.curRound.load().users.isEmpty()).toBeTrue();
+    expect(validatorsAfter.prevRound).toEqual(validatorsBefore.curRound);
+    expect(poolAfter.pendingWithdrawals).toEqual(poolBefore.pendingWithdrawals + smallDepo);
+}
+
+get fun `test only owner should be able to evict nominators`() {
+    val (pool, _owner, notOwner, _validator) = setupDeployedPool();
+    val legitNm = testing.treasury("Legit cat");
+
+    val legitDepo = (random.range(20) + 2) * ton("1000");
+
+    assertPoolDepositInstant(pool, legitNm.address, legitDepo);
+
+    val balanceBefore = testing.getAccountBalance(pool.address);
+    val stateBefore = getAccountData(pool.address);
+
+    val res = pool.sendEvictNominator(
+        notOwner.address,
+        DEFAULT_QUERY_ID,
+        legitNm.address,
+        { value: ton("1000") },
+    );
+    expect(res).toNotHaveTx({ to: legitNm.address });
+    expect(
+        res,
+    ).toHaveRefund<EvictNominator>({ to: notOwner.address, from: pool.address, error: ErrorsPool.NotOwner, initialBalance: balanceBefore, previousState: stateBefore });
 }
 
 get fun `test only owner should be able to update nominators whitelist`() {

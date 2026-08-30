@@ -43,6 +43,7 @@ fun Nominator.withdrawShare(
     roundIndex: int,
     msgValue: coins,
     pending: Cell<PendingOps>?,
+    refund: address? = null,
 ): Cell<PendingOps>? {
     val availableBalance = contract.getOriginalBalance() - msgValue - POOL_MIN_STORAGE;
 
@@ -97,7 +98,7 @@ fun Nominator.withdrawShare(
         }
         val pendingRefund = createMessage({
             bounce: false,
-            dest: owner,
+            dest: refund == null ? owner : refund,
             value: 0,
             body: RefundMessage {
                 context: RefundContext {

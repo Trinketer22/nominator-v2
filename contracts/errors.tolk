@@ -29,6 +29,7 @@ enum ErrorsPool {
     TooManyNominators = 400
     TooManyValidators
     NominatorsTooDeep
+    MustBePending
     InvalidNewStakeMessage = 500
     RoundTooEarly = 501
     RecoveryTimeTooEarly = 502

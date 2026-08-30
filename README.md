@@ -542,6 +542,7 @@ Nominators interact with the pool using an exact text-comment body: a 32-bit zer
 | `RemoveValidator` | Removes an idle validator immediately. A validator with active usage remains stored and banned from new stakes. |
 | `UpdateLimits` | Adjusts global or per-validator staking/nominator limits. |
 | `UpdateNominatorsWhitelist` | Replaces the nominator whitelist. If the whitelist is non-empty, only listed addresses may deposit. |
+| `EvictNominator` | Forces a nominator to exit the pool at the end of the round, paid out via the pending payout chain. |
 | `OwnerWithdrawal` | Withdraws available owner equity, including contributed principal, after nominator liabilities, pending deposits, storage reserve, and punishment capitalization are accounted for. |
 | `AddFunds` | Permissionless typed message that adds TON to owner equity. |
 
