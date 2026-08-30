@@ -906,6 +906,9 @@ get fun `test validator should be able to fully close usage record for both roun
 
     expect(validatorAfter.usage.curRoundUsage).toBeNull();
     expect(validatorAfter.usage.prevRoundUsage).toBeNull();
+
+    val sharesInfo = pool.getSharesInfo();
+    expect(sharesInfo.liquidOwnerShare).toEqual(sharesInfo.ownerShareValue);
 }
 
 get fun `test anybody could rotate vset for all the validators`() {

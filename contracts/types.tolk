@@ -280,6 +280,13 @@ struct GetProxyAddressResult {
     oddRounds: address?
 }
 
+struct GetSharesInfoResult {
+    nominatorsAmount: coins
+    poolSupply: coins
+    ownerShareValue: coins
+    liquidOwnerShare: coins
+}
+
 struct RotationStatus {
     roundRotated: bool
     roundIsClosed: bool

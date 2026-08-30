@@ -658,12 +658,25 @@ fun asssertSimpleWithdawal(pool: Pool, nm: address) {
 fun getMaxOwnerShare(pool: Pool): int {
     val poolBefore = pool.getPoolData();
     val validators = poolBefore.validators.load();
+    val withdrawalsEst = mulDivQuiet(
+        poolBefore.pendingWithdrawals,
+        poolBefore.nominatorsAmount,
+        poolBefore.poolSupply,
+    );
     val curBalance = testing.getAccountBalance(pool.address) - POOL_MIN_STORAGE -
     poolBefore.pendingDeposits;
 
     val fullBalance = curBalance + validators.stakeUsed;
-    val ownerTheoreticalMax = fullBalance - poolBefore.nominatorsAmount -
-    pool.getMaxPunishment(0) * validators.activeSlots;
+    val ownerShare = max(
+        fullBalance - poolBefore.nominatorsAmount -
+        pool.getMaxPunishment(0) * validators.activeSlots,
+        0,
+    );
+    var liquid = max(min(ownerShare, curBalance - withdrawalsEst), 0);
+    if (poolBefore.halted || fullBalance <= poolBefore.nominatorsAmount) {
+        liquid = 0;
+    }
+    expect(pool.getSharesInfo().liquidOwnerShare).toEqual(liquid);
 
-    return min(curBalance, ownerTheoreticalMax);
+    return liquid;
 }
