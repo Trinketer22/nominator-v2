@@ -158,8 +158,6 @@ get fun `test text comment messages should be parsed strictly`() {
         to: testNominator,
         error: ErrorsPool.InvalidMessage,
     });
-
-    repeat (3) {}
 }
 
 get fun `test pool has a limit of 1023 nominators`() {

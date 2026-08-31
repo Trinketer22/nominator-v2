@@ -10,14 +10,6 @@ struct ElectorStorage {
     activeHash: uint256
 }
 
-struct ParticipantEntry {
-    stake: coins
-    time: uint32
-    maxFactor: uint32
-    addrHash: uint256
-    adnlAddress: uint256
-}
-
 // Default values specified just
 struct ParticipantListExt {
     electAt: int
