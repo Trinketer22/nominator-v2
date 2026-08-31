@@ -2654,6 +2654,110 @@ get fun `test pending withdrawal should be allowed once per round`() {
     });
 }
 
+get fun `test full nominators exit should not leave any nominators amount dust`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator) = setupDeployedPool();
+
+    val nm1 = testing.treasury("First Nominator");
+    val nm2 = testing.treasury("Second Nominator");
+
+    val depoAmount = ton("200000");
+    val valueLocked = depoAmount - DEPOSIT_GAS;
+
+    assertPoolDepositInstant(pool, nm1.address, depoAmount);
+    assertPoolDepositInstant(pool, nm2.address, depoAmount);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+        valueLocked,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+        valueLocked,
+    );
+
+    // Both nominators want out
+    assertDelayedOperation(pool, nm1.address, true);
+    assertDelayedOperation(pool, nm2.address, true);
+
+    var res = waitAndRecoverStake(pool, validator, elector.address);
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+
+    runElections(elector, stakes, limits);
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+
+    res = waitAndRecoverStake(pool, validator, elector.address);
+    expect(res).toHaveSuccessfulTx<WithdrawSuccess>({ from: pool.address, to: nm1.address });
+    expect(res).toHaveSuccessfulTx<WithdrawSuccess>({ from: pool.address, to: nm2.address });
+
+    var poolAfter = pool.getPoolData();
+    expect(poolAfter.poolSupply).toEqual(0);
+    expect(poolAfter.nominatorsAmount).toEqual(0);
+
+    assertPoolInvariants(pool);
+
+    // Now let's depo back and do same for instant withdrawals
+    assertPoolDepositInstant(pool, nm1.address, depoAmount);
+    assertPoolDepositInstant(pool, nm2.address, depoAmount);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+        valueLocked,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+        valueLocked,
+    );
+
+    res = waitAndRecoverStake(pool, validator, elector.address);
+    expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
+
+    runElections(elector, stakes, limits);
+    pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+
+    res = waitAndRecoverStake(pool, validator, elector.address);
+
+    poolAfter = pool.getPoolData();
+    // Nominators value has grown
+    expect(poolAfter.nominatorsAmount).toBeGreater(poolAfter.poolSupply);
+
+    asssertSimpleWithdawal(pool, nm1.address);
+    asssertSimpleWithdawal(pool, nm2.address);
+
+    poolAfter = pool.getPoolData();
+    expect(poolAfter.poolSupply).toEqual(0);
+    expect(poolAfter.nominatorsAmount).toEqual(0);
+
+    assertPoolInvariants(pool);
+    // Re-deposit again to see that no calc drift happened
+    assertPoolDepositInstant(pool, nm1.address, depoAmount);
+    assertPoolDepositInstant(pool, nm2.address, depoAmount);
+}
+
 get fun `test nominators that withdrawn/deposited in pending mode should bare round effects`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
