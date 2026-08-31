@@ -121,9 +121,9 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
         }
         WithdrawalMessage => {
             var nominators = lazy self.nominators.load();
-            val nmLookup = nominators.poolNominators.deleteAndGetDeleted(sender);
-            assert(nmLookup.isFound, ErrorsPool.DepositNotFound);
-            var nominatorData = nmLookup.loadValue();
+            var nominatorData = nominators
+                .poolNominators
+                .mustGet(sender, ErrorsPool.DepositNotFound);
 
             // Full withdrawal
             val withdrawnShares = nominatorData.share;
@@ -144,6 +144,7 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
 
             if (pending == null) {
                 nominators.nmCount -= 1;
+                nominators.poolNominators.delete(sender);
                 self.poolSupply -= withdrawnShares;
                 self.nominatorsAmount -= shareValue;
             } else {

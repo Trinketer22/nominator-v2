@@ -616,9 +616,9 @@ fun onInternalMessage(in: InMessage) {
 
             val distribution = msg.distribution;
             if (msg.isWithdrawal) {
-                val nmLookup = nominators.poolNominators.deleteAndGetDeleted(msg.owner);
-                assert(nmLookup.isFound, ErrorsPool.DepositNotFound);
-                var nmData = nmLookup.loadValue();
+                var nmData = nominators
+                    .poolNominators
+                    .mustGet(msg.owner, ErrorsPool.DepositNotFound);
                 val sharePrice = calcSharePrice(
                     nmData.pendingWithdrawal,
                     distribution.pendingCoins,
@@ -651,6 +651,7 @@ fun onInternalMessage(in: InMessage) {
                                 },
                             );
                     } else {
+                        nominators.poolNominators.delete(msg.owner);
                         nominators.nmCount -= 1;
                     }
                     reserveGramsOnBalance(
