@@ -18,7 +18,6 @@ import "@tests/elector-utils"
 import "@tests/matchers"
 import "@tests/proxy-utils"
 import "@tests/test-utils"
-import "@tests/test-utils"
 import "@wrappers/ElectorCode.gen"
 import "@wrappers/PayoutItem.gen"
 import "@wrappers/Pool.gen"
@@ -48,7 +47,6 @@ fun assertPoolDepositInstant(pool: Pool, from: address, amount: coins) {
         nmBefore = nmLookup.loadValue();
     }
 
-    // val res = pool.sendDepositMessage(from, {value:  amount});
     val res = net.send(
         from,
         createMessage({
@@ -218,16 +216,6 @@ fun assertPoolNewStake(
 
     val curRoundBefore = validators.curRound.load();
     val newStakeOk = reflect.serializationPrefixOf<NewStakeOk>().0;
-    val _stakeTx = res.findTransaction<NewStake>({ from: validator, to: pool.address });
-    val refundTx = res.findTransaction({
-        to: validator,
-        from: pool.address,
-        opcode: opcode<RefundMessage>(),
-    });
-    if (refundTx != null) {
-        val _refundMsg = refundTx.loadBody<RefundMessage>();
-        // println("Refund msg {}", refundMsg);
-    }
     expect(
         res,
     ).toHaveSuccessfulTx({ from: elector.address, to: expectedProxy.address, opcode: newStakeOk });
@@ -476,7 +464,6 @@ fun assertDelayedOperation(
     if (rawLookup.isFound) {
         rawDataBefore = rawLookup.loadValue();
     }
-    //val rawDataBefore = nominators.poolNominators.mustGet(nm, 42);
     var comment: slice;
     var resultName: string;
     var incomingValue: coins;
@@ -522,11 +509,6 @@ fun assertDelayedOperation(
         }),
     );
     res.giveName(resultName);
-    // println(res);
-    val refundTx = res.findTransaction<RefundMessage>({ from: pool.address });
-    if (refundTx != null) {
-        // println(refundTx.loadBody<RefundMessage>());
-    }
 
     val poolAfter = pool.getPoolData();
     if (roundIndex == null) {
@@ -572,7 +554,6 @@ fun assertDelayedOperation(
     } else {
         expect(balanceAfter).toBeGreater(balanceBefore);
     }
-    // println(res);
 
     val nmAfter = poolAfter.nominators.load();
 
@@ -623,7 +604,6 @@ fun asssertSimpleWithdawal(pool: Pool, nm: address) {
             body: beginCell().storeUint(0, 32).storeSlice("w".beginParse()).endCell(),
         }),
     );
-    // println(res);
     res.giveName("Withdrawal request simple");
 
     val balanceAfter = testing.getAccountBalance(pool.address);

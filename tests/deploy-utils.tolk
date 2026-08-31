@@ -118,21 +118,6 @@ fun defaultDeployMessage(
     });
 }
 
-fun deployPoolWith(owner: address, poolId: int, value: int, msg: InitPoolMessage): Pool {
-    val poolStateInit = getPoolStateInit(owner, poolId);
-    val res = net.send(
-        owner,
-        createMessage({
-            bounce: false,
-            dest: poolStateInit,
-            value,
-            body: msg,
-        }),
-    );
-    expect(res).toHaveSuccessfulDeploy<InitPoolMessage>();
-    return Pool.fromAddress(poolStateInit.calculateAddress());
-}
-
 fun setupDeployTest(): (Pool, Treasury, Treasury, address) {
     setupSimplifiedElections();
     val deployer = testing.treasury("deployer");

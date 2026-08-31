@@ -442,7 +442,7 @@ get fun `test reward should be claimable in pending mode`() {
         from: pool.address,
         to: validator,
     });
-    // println(res);
+
     expect(notificationTx != null).toBeTrue();
     val notification = notificationTx!.loadBody<StakeReturned>();
     val nominatorsProfit = (notification.returned - notification.used) / 2;
@@ -468,7 +468,6 @@ get fun `test reward should be claimable in pending mode`() {
     val withdrawMsg = withdrawTx!.loadInMsg<WithdrawSuccess>();
     val withdrawBody = withdrawMsg.loadBody();
     val actualValue = getInternalMessageValue(withdrawMsg.info).grams;
-    // println(format("Rate with rewards {} expected {} actual {}", rateWithRewards, expectedValue, actualValue));
     expect(actualValue as int).toBeApproxEqAbs(expectedValue, 1000);
 
     val nmAfter = pool.getNominatorData(nmHash);
@@ -578,7 +577,6 @@ get fun `test if pool received loss, nominators stake should decrease in price`(
             },
         }),
     );
-    // println(res);
 
     expect(res).toHaveSuccessfulTx<RecoverStakeOk>({ to: pool.address });
 
@@ -1125,7 +1123,6 @@ get fun `test pool should halt if withdrawals can't be processed`() {
     expect(midShare.liquidOwnerShare).toEqual(0);
 
     res = recCursor.executeAllRemaining();
-    // println(res);
 
     poolAfter = pool.getPoolData();
     expect(poolAfter.halted).toBeFalse();
@@ -1821,7 +1818,7 @@ get fun `test in closed round, withdraw should be carried in pending mode and be
     }
 
     val res = waitAndRecoverStake(pool, validator, elector.address);
-    // println(res);
+
     val recoverTx = res.findTransaction<RecoverStakeOk>({ to: pool.address });
     val stakeReturnedTx = res.findTransaction<StakeReturned>({ from: pool.address, to: validator });
     expect(recoverTx != null).toBeTrue();
@@ -2195,7 +2192,7 @@ get fun `test in closed round, deposit should be carried in pending mode and be 
     }
 
     val res = waitAndRecoverStake(pool, validator, elector.address);
-    // println(res);
+
     expect(res).toHaveSuccessfulTx<PayoutBurnNotification>({ to: pool.address });
     expect(res).toHaveSuccessfulTx<PayoutBurnMessage>({ from: pool.address });
     val returnedTx = res.findTransaction<StakeReturned>({ from: pool.address, to: validator });
@@ -2807,7 +2804,6 @@ get fun `test nominators that withdrawn/deposited in pending mode should bare ro
     expect(withdrawTx).toBeNotNull();
 
     val _withdrawMsg = withdrawTx!.loadInMsg<WithdrawSuccess>();
-    // println(getInternalMessageValue(withdrawMsg.info).grams);
 
     expect(res).toHaveTx<WithdrawSuccess>({
         value: fun(value) {
@@ -2926,7 +2922,6 @@ get fun `test in closed round, withdraw should become pending and be fullfilled 
     }
     val res = waitAndRecoverStake(pool, validator, elector.address);
 
-    // println(res);
     //
     val recoverTx = res.findTransaction<RecoverStakeOk>({ to: pool.address });
     val stakeReturnedTx = res.findTransaction<StakeReturned>({ from: pool.address, to: validator });

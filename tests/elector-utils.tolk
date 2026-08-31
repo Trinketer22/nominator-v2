@@ -106,17 +106,13 @@ fun runElections(
     val minStake = stakes.minStake + ton("1");
     val factor = 1 << 16;
     val elections = elector.activeElectionId();
-    // println(testing.getNow());
-    // println("Before the loop", random.uint256());
     var i = 0;
     repeat (participants.minValidators) {
-        // var newAddress = randomAddress(null, MASTERCHAIN);
         val newAddress = address.fromWorkchainAndHash(
             MASTERCHAIN,
             crypto.getSecureRandomBytes(32).loadUint(256),
         );
-        val pubKey = random.uint256(); //crypto.getSecureRandomBytes(32).loadUint(256);
-        // println("In the loop:", pubKey);
+        val pubKey = random.uint256();
         val res = net.send(
             newAddress,
             createMessage({

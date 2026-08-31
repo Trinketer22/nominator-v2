@@ -194,7 +194,6 @@ get fun `test validator share limit should affect amount of stake allowed to be 
         maxStake,
         ton("1"),
     );
-    // assertPoolNewStake(testValidator, pool, elector, elections, maxStake - 1);
 }
 
 get fun `test should not be able to stake if validators.minStake became below network minStake`() {
@@ -663,9 +662,7 @@ get fun `test validator should be able to recover stake and rotate round`() {
     expect(prevRound.usage.rotation.rotationCount).toEqual(2);
 
     val res = waitAndRecoverStake(pool, validator, elector.address);
-    // pool.sendRecoverStakeCompat(validator, DEFAULT_QUERY_ID, {value: ton("1")});
     val poolAfter = pool.getPoolData();
-    // println(res);
     var recoverTx = res.findTransaction({
         from: address.fromWorkchainAndHash(MASTERCHAIN, expectedProxy),
         to: pool.address,
@@ -683,8 +680,6 @@ get fun `test validator should be able to recover stake and rotate round`() {
 
     val ownerProfit = mulDivFloor(profit, poolBefore.ownerShare, SHARE_BASE);
     val nominatorsProfit = profit - ownerProfit;
-    //println("Owner profit {}", ownerProfit);
-    //println("Nominators profit {}", nominatorsProfit);
     expect(poolAfter.nominatorsAmount).toEqual(poolBefore.nominatorsAmount + nominatorsProfit);
 
     val infoTx = res.findTransaction<RoundInfoMessage>({ from: pool.address, to: owner.address });
@@ -729,7 +724,6 @@ get fun `test validator should be able to recover stake and rotate round`() {
     expect(prevRound.proxy).toNotEqual(expectedProxy);
 
     val secondRecovery = waitAndRecoverStake(pool, validator, elector.address);
-    // val secondRecovery = pool.sendRecoverStakeCompat(validator, DEFAULT_QUERY_ID, {value: ton("1")});
     recoverTx = secondRecovery.findTransaction({
         from: address.fromWorkchainAndHash(MASTERCHAIN, prevRound.proxy),
         to: pool.address,
@@ -1096,7 +1090,6 @@ get fun `test new stake error should not bleed pool balance`() {
     }
     val balanceAfter = testing.getAccountBalance(pool.address);
     expect(balanceAfter).toBeGreaterOrEqual(balanceBefore);
-    // println(balanceAfter - balanceBefore);
 }
 
 get fun `test new stake should refund on values above 1 ton`() {
@@ -1145,21 +1138,16 @@ get fun `test should not be able to recover till unfreeze time`() {
 
     // To early just hopped on elections
     var curUsage = pool.getValidatorInfo(testValidator);
-    // println(curUsage);
-    // println(res);
     expect(curUsage.usage.curRoundUsage!.usage.rotation.rotationCount).toEqual(0);
     expect(
         res,
     ).toHaveRefund<RecoverStakeCompat>({ from: pool.address, to: testValidator, error: ErrorsPool.RoundTooEarly });
-    // println("After first recovery");
     runElections(elector, stakes, limits);
-    // println("Got past first elections");
     // To early, only next vset
     pool.sendUpdateVset(testValidator, DEFAULT_QUERY_ID, { value: ton("1") });
     curUsage = pool.getValidatorInfo(testValidator);
     expect(curUsage.usage.prevRoundUsage!.usage.rotation.rotationCount).toEqual(1);
 
-    // println("Second recovery");
     res = pool.sendRecoverStakeCompat(testValidator, DEFAULT_QUERY_ID, { value: ton("100") });
     expect(
         res,
@@ -1168,11 +1156,9 @@ get fun `test should not be able to recover till unfreeze time`() {
     elections = announceElections(elector);
     runElections(elector, stakes, limits);
     pool.sendUpdateVset(testValidator, DEFAULT_QUERY_ID, { value: ton("1") });
-    // println("Passed second elections");
     curUsage = pool.getValidatorInfo(testValidator);
     expect(curUsage.usage.prevRoundUsage!.usage.rotation.rotationCount).toEqual(2);
 
-    // println("Third recovery");
     res = pool.sendRecoverStakeCompat(testValidator, DEFAULT_QUERY_ID, { value: ton("100") });
     // Right round, but no unfreeze yet
     expect(
@@ -1883,11 +1869,6 @@ get fun `test new stake error from elector should be handled appropriately`() {
     );
     res.giveName("NewStakeError");
 
-    val refundTx = res.findTransaction<RefundMessage>({ from: pool.address });
-    if (refundTx != null) {
-        // println(refundTx.loadBody<RefundMessage>());
-    }
-
     expect(res).toHaveSuccessfulTx<NewStakeError>({ to: pool.address });
 
     val poolAfter = pool.getPoolData();
@@ -1952,11 +1933,6 @@ get fun `test new stake error from elector should be handled appropriately (FULL
         { value: ton("1") },
     );
     res.giveName("NewStakeError");
-
-    val refundTx = res.findTransaction<RefundMessage>({ from: pool.address });
-    if (refundTx != null) {
-        // println(refundTx.loadBody<RefundMessage>());
-    }
 
     expect(res).toHaveSuccessfulTx<NewStakeError>({ to: pool.address });
 
