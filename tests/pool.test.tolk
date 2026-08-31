@@ -2357,6 +2357,64 @@ get fun `test nominator with both pending withdrawals and pending depo, should e
     expect(rawNms.pendingWithdrawals).toBeNull();
 }
 
+get fun `test that instant deposit doesn't change pending withdrawal context`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator) = setupDeployedPool();
+    val testNm = testing.treasury("TestNominator");
+
+    val depoValue = ton("200000");
+    val stakeValue = depoValue - DEPOSIT_GAS;
+
+    var elections = announceElections(elector);
+    assertPoolDepositInstant(pool, testNm.address, depoValue);
+    assertPoolNewStake(validator, pool, elector, elections, stakeValue);
+
+    val (withdrawalItem, _) = assertDelayedOperation(pool, testNm.address, true);
+
+    val poolBefore = pool.getPoolData();
+    val nominatorsBefore = poolBefore.nominators.load().poolNominators;
+    expect(poolBefore.pendingWithdrawals).toEqual(stakeValue);
+
+    val nmBefore = nominatorsBefore.mustGet(testNm.address);
+    expect(nmBefore.pendingWithdrawal).toEqual(stakeValue);
+    expect(nmBefore.withdrawalIndex).toBeGreater(0);
+
+    repeat (2) {
+        runElections(elector, stakes, limits);
+        pool.sendUpdateVset(validator, DEFAULT_QUERY_ID, { value: DEFAULT_MSG_VALUE });
+        elections = announceElections(elector);
+    }
+
+    waitTillRecovery(pool, validator, elector.address);
+
+    val recoverCursor = testing.createTraceIterationCursor(
+        validator,
+        createMessage<RecoverStakeCompat>({
+            bounce: true,
+            dest: pool.address,
+            value: DEFAULT_MSG_VALUE,
+            body: RecoverStakeCompat { queryId: DEFAULT_QUERY_ID },
+        }),
+    );
+
+    // Execute till self update
+    // Round is opened, but payouts are not yet processed
+    recoverCursor.executeTill<UpdateVset>({ from: pool.address, to: pool.address });
+
+    val additinalValue = ton("10000");
+    assertPoolDepositInstant(pool, testNm.address, additinalValue);
+
+    val poolAfter = pool.getPoolData();
+    expect(poolAfter.pendingWithdrawals).toEqual(poolBefore.pendingWithdrawals);
+    expect(poolAfter.pendingDeposits).toEqual(poolBefore.pendingDeposits);
+
+    val nominatorsAfter = poolAfter.nominators.load().poolNominators;
+    val nmAfter = nominatorsAfter.mustGet(testNm.address);
+
+    expect(nmAfter.pendingWithdrawal).toEqual(nmBefore.pendingWithdrawal);
+    expect(nmAfter.withdrawalIndex).toEqual(nmBefore.withdrawalIndex);
+}
+
 get fun `test that if any stakes used in prev round, deposit should become pending`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(40);
