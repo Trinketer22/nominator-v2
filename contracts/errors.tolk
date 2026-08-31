@@ -30,12 +30,10 @@ enum ErrorsPool {
     TooManyValidators
     NominatorsTooDeep
     MustBePending
-    InvalidNewStakeMessage = 500
     RoundTooEarly = 501
     RecoveryTimeTooEarly = 502
     ValidatorNotFound = 600
     ValidatorAlreadyExits
-    MainValidatorCantBeRemoved
     ElectionsNotStarted
     ElectionsAlreadyEnded
     OwnerShareIsUndercapitalized

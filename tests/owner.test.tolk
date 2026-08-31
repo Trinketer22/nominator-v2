@@ -13,7 +13,6 @@ import "@contracts/errors"
 import "@contracts/fees"
 import "@contracts/messages"
 import "@contracts/types"
-import "@contracts/utils"
 import "@contracts/validators"
 import "@tests/deploy-utils"
 import "@tests/elector-utils"
@@ -282,7 +281,6 @@ get fun `test if validator has stake, it will get banned, instead of being remov
         ErrorsPool.ValidatorNotFound,
         testValidator,
         pool,
-        elector.address,
         elections,
         testStake,
     );
@@ -691,13 +689,6 @@ get fun `test owner should be able to update per-validator limit`(maxTon: coins,
                 limit: tonLimit,
             },
         );
-        // println(res);
-        /*
-        val refundTx = res.findTransaction<RefundMessage>({from: pool.address});
-        if(refundTx != null) {
-            // println(refundTx.loadBody<RefundMessage>());
-        }
-        */
         var stateAfter = pool.getPoolData();
         var validatorsAfter = stateAfter.validators.load();
         var validatorUpd = validatorsAfter.getValidatorByAddress(curValidator, 42)!;
@@ -707,17 +698,6 @@ get fun `test owner should be able to update per-validator limit`(maxTon: coins,
         } else {
             Assert.fail(format("Expected ton limit got {}", validatorUpd.limit));
         }
-        /*
-        match(stateAfter.validator.limit) {
-            ValidatorLimitTon => {
-                expect(stateAfter.validator.limit.maxTon).toEqual(tonLimit.maxTon);
-            },
-            ValidatorLimitShare => {Assert.fail(format("Excected ton limit got {}", stateAfter.validator.limit));},
-            null => {
-                Assert.fail(format("Excected ton limit got {}", stateAfter.validator.limit));
-            }
-        }
-        */
         pool.sendUpdateLimits(
             owner.address,
             DEFAULT_QUERY_ID,
@@ -736,18 +716,6 @@ get fun `test owner should be able to update per-validator limit`(maxTon: coins,
             Assert.fail(format("Expected share limit got {}", validatorUpd.limit));
         }
 
-        //stateAfter = pool.getValidatorInfo(curValidator);
-        /*
-        match(stateAfter.validator.limit) {
-            ValidatorLimitTon => {Assert.fail(format("Excected ton limit got {}", stateAfter.validator.limit));},
-            ValidatorLimitShare => {
-                expect(stateAfter.validator.limit.maxShare).toEqual(shareLimit.maxShare);
-            },
-            null => {
-                Assert.fail(format("Excected ton limit got {}", stateAfter.validator.limit));
-            },
-        }
-        */
         i -= 1;
     }
 }
@@ -1126,7 +1094,6 @@ get fun `test owner share should decrease accordingly to withdrawn amount`() {
 
     var shareLeft = maxOwnerShare;
     var maxShareChunk = shareLeft / 4;
-    var iterCount = 0;
 
     while (maxShareChunk > ton("0.05")) {
         val curChunk = random.range(shareLeft / 4) + ton("0.05");
@@ -1164,9 +1131,7 @@ get fun `test owner share should decrease accordingly to withdrawn amount`() {
         shareLeft -= curChunk;
 
         maxShareChunk = shareLeft >> 2;
-        iterCount += 1;
     }
-    // println(format("Total {} iterations", iterCount));
 }
 
 @test.fuzz(64)
