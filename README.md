@@ -17,10 +17,11 @@ A Tolk-based smart contract protocol for The Open Network (TON) that enables del
 9. [Fee Structure](#fee-structure)
 10. [Getters](#getters)
 11. [Security Model](#security-model)
-12. [Known Limitations & Implementation Status](#known-limitations--implementation-status)
-13. [Build & Test](#build--test)
-14. [Scripts](#scripts)
-15. [References](#references)
+12. [Error Codes](#error-codes)
+13. [Known Limitations & Implementation Status](#known-limitations--implementation-status)
+14. [Build & Test](#build--test)
+15. [Scripts](#scripts)
+16. [References](#references)
 
 ---
 
@@ -160,7 +161,7 @@ The original limits and behavior above are based on its [pool-v1 README](https:/
 | `maxNominators` | `uint10` | Maximum number of distinct nominator entries. Starting an empty pool at `0` creates owner-only mode. Lowering the value later does not block existing nominators from topping up. |
 | `minStake` | `coins` | Minimum deposit amount accepted from a nominator. This is the true configurable economic gate; the contract also requires a small gas constant on top of this (see `DEPOSIT_GAS` in the fee table), but that constant is not itself a fee charged to the owner. |
 | `minWithdrawableRewards` | `coins` | Minimum profit a nominator must have accrued before a reward withdrawal (`"r"` comment) is accepted. |
-| `whitelist` | `map<address, bool>` | Optional nominator whitelist. If the map is non-empty, only addresses present in it are allowed to deposit. If empty, all addresses are accepted. Can be updated post-initialization via `UpdateNominatorsWhitelist`. |
+| `whitelist` | `map<address, bool>` | Optional nominator whitelist. If the map is non-empty, only addresses present in it are allowed to deposit. If empty, all addresses are accepted. Admission is presence-based: the boolean value is not consulted, so any stored value is equivalent. Can be updated post-initialization via `UpdateNominatorsWhitelist`. |
 
 ### Global Limits (`UpdateLimits`)
 
@@ -357,7 +358,7 @@ The **trust boundary** between the owner and nominators is `refundBonus`. The ow
 **Typical values on masterchain :** the default `refundBonus` is 3 TON. The validator receives the full 3 TON; of that, 2 TON is deducted from the recovered amount (reducing profit shared by owner and nominators) and 1 TON is borne by the owner alone. The actual external validator cost per round is ~0.6 TON, so a validator's wallet balance grows over time. This is done for simplicity — the owner does not need to measure exact gas costs per round. An owner who wants tighter accounting can measure actual per-round costs and adjust `refundBonus` downward.
 
 **Owner gas costs:**
-The owner share growth is lower that the nominators by a margin of (~0.25 TON) per stake round(single stake round trip). Mainly due to gas and forwarding cost.
+Owner share growth is lower than nominators' by a margin of roughly 0.25 TON per stake round (a single stake round trip), mainly due to gas and forwarding costs.
 
 ---
 
@@ -501,7 +502,7 @@ struct ProxyResponse {
 
 This wrapper lets the pool authenticate that the response really came from an expected proxy, and tells it which validator and which round parity the response belongs to.
 
-**`RecoverStakeOk` edge case:** Elector responses must carry the recovered stake back. If the returned value is very small (`< PROXY_MIN_STORAGE * 2`), the proxy assumes the stake was heavily slashed. In that case it deliberately **spends its own storage reserve** to make sure at least `0.1` TON reaches the pool (rather than trapping funds in a depleted proxy). If the value is healthy, the proxy replenishes its `PROXY_MIN_STORAGE` reserve first and forwards the rest.
+**`RecoverStakeOk` / `NewStakeError` edge case:** These are the responses that change pool state, so the proxy must ensure they reach the pool even after heavy slashing. If the returned value is very small (`< PROXY_MIN_STORAGE * 2`), the proxy assumes the stake was slashed and deliberately **spends its own storage reserve** to make sure at least `0.1` TON reaches the pool (rather than trapping funds in a depleted proxy). All other responses (and healthy values) take the regular path: the proxy replenishes its `PROXY_MIN_STORAGE` reserve first and forwards the rest.
 
 ### Bounce Handling
 
@@ -515,6 +516,8 @@ Proxy addresses are derived deterministically from proxy code and `(pool, valida
 
 ## Contract Interactions
 
+Binary layouts and opcodes for every message — including the response and notification messages nominators and the owner receive (`DepositSuccess`, `WithdrawSuccess`, `StakeReturned`, `RoundInfoMessage`, `RefundMessage`, and others) — are specified in TL-B form in [`tlb/messages.tlb`](tlb/messages.tlb), and the persistent storage schemas in [`tlb/storage.tlb`](tlb/storage.tlb).
+
 ### Nominator Operations (Text Comments)
 
 Nominators interact with the pool using an exact text-comment body: a 32-bit zero prefix followed by one ASCII byte `d`, `w`, or `r`, with no trailing bits or references.
@@ -522,7 +525,7 @@ Nominators interact with the pool using an exact text-comment body: a 32-bit zer
 | Comment | Action |
 |---------|--------|
 | `"d"` | **Deposit**: TON minus `DEPOSIT_GAS` is converted to shares. If the round is closed or there are still unrecovered stakes in the previous round, funds go into a pending deposit queue. |
-| `"w"` | **Full Withdrawal**: Withdraws all current shares. It becomes pending if the round is closed, liquid balance is insufficient, or the nominator already has a pending operation. A pending deposit is retained rather than cancelled. |
+| `"w"` | **Full Withdrawal**: Withdraws all current shares. It becomes pending if the round is closed, any pending-withdrawal payout chain is still outstanding, liquid balance is insufficient, or the nominator already has a pending operation. A pending deposit is retained rather than cancelled. |
 | `"r"` | **Reward Withdrawal**: Withdraws only profit (share value minus the deposit baseline). It uses the same pending conditions as other withdrawals. |
 
 ### Validator Operations
@@ -604,13 +607,76 @@ All elector responses (`NewStakeOk`, `NewStakeError`, `RecoverStakeOk`, `Recover
 Before `new_stake`, the contract ensures owner equity covers the worst-case minimum-stake punishment multiplied by the resulting active slot count. Recovery losses are nevertheless split according to `ownerShare`.
 
 ### Solvency Check
-Before processing nominator deposits/withdrawals, the pool verifies that its **projected balance** (`balance - pendingDeposits - POOL_MIN_STORAGE + stakeUsed`) exceeds `nominatorsAmount`; otherwise the message is rejected. The same projected balance is exposed by `get_pool_invariants()` for off-chain solvency monitoring.
+Before processing nominator deposits/withdrawals, the pool verifies that its **projected balance** (`balance - incomingValue - pendingDeposits - POOL_MIN_STORAGE + stakeUsed`) exceeds `nominatorsAmount`; otherwise the message is rejected. `get_pool_invariants()` exposes a matching projected balance (without the incoming-value term) for off-chain solvency monitoring.
 
 ### Bounce Handling
-If a `new_stake` message bounces (e.g., proxy frozen or elector rejection), the usage record is automatically reversed and the validator's locked funds are released.
+If a `new_stake` message bounces (e.g., proxy frozen or elector rejection), the usage record is automatically reversed and the validator's locked funds are released. If the bounced value differs from the recorded usage by more than 1 TON (only possible under abnormal elector behavior), the difference is booked as a round loss instead of being reversed.
 
 ### Halt / Graceful Degradation
 If liquidity prevents pending processing from starting, the pool sets `halted = true`. While halted, new validator stakes and owner withdrawals are blocked; nominator withdrawals and reward claims are routed to pending mode. A later rotation retries processing; asynchronous payout notifications may still be in flight when the halt clears.
+
+---
+
+## Error Codes
+
+Exit codes are defined in `contracts/errors.tolk`. Failed operations are refunded, and refund messages carry the error code in `RefundContext.errorCode`. Codes 80–86 and 90–91 keep the original nominator pool numbering for client compatibility.
+
+### Pool
+
+| Code | Error | Meaning |
+|------|-------|---------|
+| 78 | `InvalidWorkchain` | Initialization on a non-basechain address. |
+| 80 | `QueryIdRequired` | `NewStake` with `queryId = 0`. |
+| 81 | `StakeBelowLimit` | Stake below the global minimum TON per validator. |
+| 82 | `NotEnoughPoolBalance` | Stake or owner withdrawal above the available balance. |
+| 86 | `NotEnoughValueForNewStake` | Stake value below the required minimum. Also thrown by `get_nominator_data` for an absent nominator (v1 compatibility). |
+| 90 | `PoolStorageNotInitialized` | Operation on an uninitialized pool. |
+| 91 | `AlreadyInitialized` | Second initialization attempt. |
+| 92 | `InvalidMaxMin` | Minimum limit not below the maximum limit. |
+| 93 | `AtLeastOneRoundShouldBeAlowed` | `roundAllowance = 0` at init. |
+| 94 | `InvalidOwnerShare` | `ownerShare` above `SHARE_BASE`. |
+| 95 | `InvalidValidatorShare` | Validator share limit above `SHARE_BASE`. |
+| 96 | `IndividualLimitIsAboveGlobal` | Per-validator TON cap above the global maximum. |
+| 97 | `IndividualLimitIsBelowGlobal` | Per-validator TON cap below the global minimum. |
+| 98 | `MinStakeBelowNetworkLimit` | `minTonPerValidator` below the network config 17 minimum. |
+| 99 | `MaxStakeAboveNetworkLimit` | `maxTonPerValidator` above the network config 17 maximum. |
+| 200 | `NotOwner` | Owner operation from a non-owner sender. |
+| 201 | `OwnerNotFound` | Payout notification referencing an unknown nominator record. |
+| 202 | `WithdrawalAlreadyRequested` | Withdrawal already requested and the retry window has not elapsed. |
+| 203 | `DepositAlreadyRequested` | Deposit already requested and the retry window has not elapsed. |
+| 204 | `NothingToWithdraw` | No withdrawable shares or value. |
+| 205 | `NothingToDeposit` | Deposit converts to zero shares. |
+| 206 | `RewardIsBelowMinimal` | Reward below `minWithdrawableRewards`. |
+| 207 | `DepositNotFound` | Withdrawal or reward request from a non-nominator. |
+| 208 | `DepositNotAllowed` | Depositor not in the whitelist. |
+| 209 | `Insolvent` | Projected balance does not cover nominator funds. |
+| 300 | `NotEnoughGas` | Inbound value below the required gas constant. |
+| 400 | `TooManyNominators` | Nominator count cap reached. |
+| 401 | `TooManyValidators` | Validator count cap (32) reached. |
+| 402 | `NominatorsTooDeep` | Nominator dictionary depth cap reached. |
+| 403 | `MustBePending` | `EvictNominator` on a nominator with no pending payout record. |
+| 501 | `RoundTooEarly` | Recovery before two observed vset rotations. |
+| 502 | `RecoveryTimeTooEarly` | Recovery before the holding period plus 60s margin. |
+| 600 | `ValidatorNotFound` | Stake or recovery from an unregistered or banned validator. |
+| 601 | `ValidatorAlreadyExits` | Validator already registered. |
+| 602 | `ElectionsNotStarted` | Stake before the election window opens. |
+| 603 | `ElectionsAlreadyEnded` | Stake after the election window closes. |
+| 604 | `OwnerShareIsUndercapitalized` | Owner equity below the required punishment reserve. |
+| 605 | `StakeAboveTheLimit` | Stake above the global or per-validator limit. |
+| 606 | `RoundIsClosed` | Stake while the round is closed. |
+| 607 | `AlreadyStakedInThatRound` | Validator already has usage in this round. |
+| 608 | `RoundNotAllowed` | Round parity not permitted for this validator. |
+| 700 | `UsageRecordNotFound` | Elector response without a matching usage record. |
+| 701 | `NotFromProxy` | Elector response not from the expected proxy. |
+| 702 | `PoolIsHalted` | Operation blocked while the pool is halted. |
+| 65535 | `InvalidMessage` | Unknown opcode or malformed text comment. |
+
+### PayoutItem
+
+| Code | Error | Meaning |
+|------|-------|---------|
+| 800 | `InvalidSender` | Burn attempt from anyone other than the pool or the previous chain item. |
+| 801 | `AlreadyInitialized` | Second initialization attempt. |
 
 ---
 
@@ -626,6 +692,9 @@ If liquidity prevents pending processing from starting, the pool sets `halted = 
 
 ### Not yet implemented
 - **Single-nominator relaxed timing**: The original single-nominator pool allowed the validator to bypass election-window timing checks. This contract always enforces `ElectionsTiming` bounds, even when `maxNominators = 0`.
+
+### Ownership
+The owner is fixed at deployment. There is no ownership-transfer message: a lost or compromised owner key permanently freezes pool administration — validator management, limits, whitelist, `refundBonus`, and owner-equity withdrawals. Nominator deposits, withdrawals, and reward claims remain available.
 
 ### Notes on fee model
 - `DEPOSIT_GAS` and `WITHDRAWAL_GAS` are hardcoded **gas constants** in `contracts/fees.tolk` (`0.2` TON each). They are not fees collected by the owner.
@@ -745,8 +814,8 @@ Read-only script that prints the full pool state or per-validator info. No walle
 # Pool overview
 acton script scripts/pool-info.tolk
 
-# Validator info (interactive picker)
-acton script scripts/pool-info.tolk
+# Validator info (interactive picker over the pool's known validators)
+MODE=validator acton script scripts/pool-info.tolk
 ```
 
 ### Running via TON Connect
@@ -783,6 +852,7 @@ BATCH=1 \
 
 - [TON Docs — Tolk Overview](https://docs.ton.org/tolk/overview)
 - [TON Docs — TON Blockchain](https://docs.ton.org/)
+- [TL-B schemas](tlb/) — message and storage binary layouts for integrators.
 - [Original TON Nominator Pool](https://github.com/ton-blockchain/nominator-pool/tree/2f35c36b5ad662f10fd7b01ef780c3f1949c399d) and single-nominator pool contracts served as interface and logic references.
 - [TON Docs — Nominator Pool Contracts](https://docs.ton.org/nodes/staking/nominator-pools)
 - Liquid staking payout NFT approach adapted for loop-free pending operations.
