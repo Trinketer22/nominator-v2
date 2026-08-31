@@ -6,6 +6,7 @@ import "@acton/emulation/network"
 import "@acton/emulation/scripts"
 import "@acton/testing/assert"
 
+import "@contracts/fees"
 import "@contracts/messages"
 import "@contracts/types"
 import "@scripts/pool-utils"
@@ -107,6 +108,38 @@ fun main() {
                 "Max nominators {} is out of range (0..1023)",
                 maxNominators,
             ),
+        );
+    }
+    // SAFETY: range-checked below to fit uint33 (2^33 - 1 nanograms ≈ 8.59 TON).
+    if (refundBonus > 8589934591) {
+        Assert.fail(
+            format(
+                "Refund bonus ({:gram}) exceeds the uint33 cap of ~8.59 TON",
+                refundBonus,
+            ),
+        );
+    }
+
+    // Mirror the on-chain init value requirement: the message must carry at
+    // least POOL_MIN_STORAGE + PROXY_MIN_STORAGE * nRounds + 1 TON. With
+    // nominators enabled, the worst-case punishment fine * nRounds is
+    // required on top; it depends on network config 40 and cannot be
+    // pre-computed off-chain here.
+    val nRounds = max(roundAllowance as int - 1, 1);
+    val initFloor = POOL_MIN_STORAGE + PROXY_MIN_STORAGE * nRounds + ton("1");
+    if (deployValue < initFloor) {
+        Assert.fail(
+            format(
+                "Init value ({:gram}) is below the required storage reserve floor of {:gram}",
+                deployValue,
+                initFloor,
+            ),
+        );
+    }
+    if (maxNominators > 0) {
+        println(
+            "Note: with nominators enabled, init additionally requires the worst-case punishment fine x {} per slot on top of the storage floor (see get_max_punishment)",
+            nRounds,
         );
     }
 

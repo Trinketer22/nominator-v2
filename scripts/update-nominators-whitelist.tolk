@@ -76,7 +76,12 @@ fun main() {
         "1",
     );
 
-    val count = whitelist.isEmpty() ? 0 : 1;
+    var count = 0;
+    var countIter = whitelist.findFirst();
+    while (countIter.isFound) {
+        count += 1;
+        countIter = whitelist.iterateNext(countIter);
+    }
     println(
         "Updating nominators whitelist: {} entr{}",
         count,
@@ -117,8 +122,8 @@ fun main() {
     val nominatorsAfter = lazy poolAfter.nominators.load();
     val storedWl = nominatorsAfter.nominatorsWhitelist;
 
-    // Verify each env-supplied entry is present (we cannot iterate a Tolk map,
-    // so the interactive path is verified only by the contract accepting the tx).
+    // Verify each env-supplied entry is present in the stored map (the
+    // interactive path is verified only by the contract accepting the tx).
     var j = 0;
     var verifyDone = false;
     while (!verifyDone) {

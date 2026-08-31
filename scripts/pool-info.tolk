@@ -89,6 +89,26 @@ fun printPoolInfo(pool: Pool) {
     println("Min stake:         {:gram}", minStake.minStake);
     println("Min expected value:{:gram}", minStake.minExpectedValue);
 
+    // get_shares_info may not exist on older pool deployments.
+    var shares: GetSharesInfoResult?;
+    shares = null;
+    var sharesOk = false;
+    try {
+        shares = pool.getSharesInfo();
+        sharesOk = true;
+    } catch (_e) {
+        sharesOk = false;
+    }
+    if (sharesOk) {
+        val sh = shares!;
+        println("--- Owner equity (get_shares_info) ---");
+        println("Owner equity:      {:gram}", sh.ownerShareValue);
+        println("Withdrawable now:  {:gram}", sh.liquidOwnerShare);
+    } else {
+        println("--- Owner equity ---");
+        println("(get_shares_info not available on this pool)");
+    }
+
     // Persisted validators cell info — read directly from get_pool_data.
     val validators = lazy data.validators.load();
     println("--- Validators cell (persisted) ---");

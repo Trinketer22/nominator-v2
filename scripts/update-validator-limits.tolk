@@ -36,6 +36,16 @@ fun main() {
     val queryId = (env<int>("QUERY_ID") ?? 1) as uint64;
     val value = promptCoins("MSG_VALUE", "Message value (TON):", "1");
 
+    // SAFETY: range-checked to fit uint33 (2^33 - 1 nanograms ≈ 8.59 TON).
+    if (refundBonus > 8589934591) {
+        Assert.fail(
+            format(
+                "Refund bonus ({:gram}) exceeds the uint33 cap of ~8.59 TON",
+                refundBonus,
+            ),
+        );
+    }
+
     println(
         "Updating global validator limits: min={:gram} max={:gram} bonus={:gram}",
         minTonPerValidator,
