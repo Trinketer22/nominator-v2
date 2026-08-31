@@ -267,7 +267,6 @@ fun assertNewStakeFailed(
     errCode: int,
     validator: address,
     pool: Pool,
-    _elector: address,
     elections: int,
     stake: coins,
 ) {

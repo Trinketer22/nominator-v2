@@ -944,7 +944,6 @@ get fun `test deep losses should put pool nm operations into insolvent state`() 
         ErrorsPool.OwnerShareIsUndercapitalized,
         validator,
         pool,
-        elector.address,
         elections,
         stakes.minStake * 2,
     );
@@ -1049,7 +1048,6 @@ get fun `test pool should halt if withdrawals can't be processed`() {
         ErrorsPool.NotEnoughPoolBalance,
         validator,
         pool,
-        elector.address,
         elections,
         stakes.minStake * 2,
     );
@@ -1066,7 +1064,6 @@ get fun `test pool should halt if withdrawals can't be processed`() {
         ErrorsPool.PoolIsHalted,
         validator,
         pool,
-        elector.address,
         elections,
         stakes.minStake * 2,
     );

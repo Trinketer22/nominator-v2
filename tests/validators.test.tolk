@@ -71,7 +71,6 @@ get fun `test validator allowed for only even/odd rounds, should only stake in a
         ErrorsPool.RoundNotAllowed,
         oddRoundValidator,
         pool,
-        elector.address,
         elections,
         minStake,
     );
@@ -95,7 +94,6 @@ get fun `test validator allowed for only even/odd rounds, should only stake in a
         ErrorsPool.RoundNotAllowed,
         evenRoundValidator,
         pool,
-        elector.address,
         nextElections,
         minStake,
     );
@@ -120,7 +118,6 @@ get fun `test only added validator could stake`() {
         ErrorsPool.ValidatorNotFound,
         testValidator,
         pool,
-        elector.address,
         elections,
         minStake,
     );
@@ -145,7 +142,6 @@ get fun `test validator ton limit should affect amount of stake allowed to be ta
         ErrorsPool.StakeAboveTheLimit,
         testValidator,
         pool,
-        elector.address,
         elections,
         maxStake + 1,
     );
@@ -153,7 +149,6 @@ get fun `test validator ton limit should affect amount of stake allowed to be ta
         ErrorsPool.StakeBelowLimit,
         testValidator,
         pool,
-        elector.address,
         elections,
         validatorsSettings.minTonPerValidator - 1,
     );
@@ -179,7 +174,6 @@ get fun `test validator share limit should affect amount of stake allowed to be 
         ErrorsPool.StakeAboveTheLimit,
         testValidator,
         pool,
-        elector.address,
         elections,
         maxStake + 1,
     );
@@ -237,7 +231,6 @@ get fun `test should not be able to stake if validators.minStake became below ne
         ErrorsPool.MinStakeBelowNetworkLimit,
         validator,
         pool,
-        elector.address,
         elections,
         testStake,
     );
@@ -277,7 +270,6 @@ get fun `test should not be able to stake if validators.maxTonPerValidator becam
         ErrorsPool.MaxStakeAboveNetworkLimit,
         validator,
         pool,
-        elector.address,
         elections,
         testStake,
     );
@@ -300,7 +292,6 @@ get fun `test shoulld reject new stake when balance is below the requested value
         ErrorsPool.NotEnoughPoolBalance,
         validator,
         pool,
-        elector.address,
         elections,
         validatorsSettings.maxTonPerValidator,
     );
@@ -354,7 +345,6 @@ get fun `test should not be able to stake when round is closed`() {
         ErrorsPool.RoundIsClosed,
         additionalValidator,
         pool,
-        elector.address,
         elections,
         stakes.minStake * 2,
     );
@@ -371,7 +361,6 @@ get fun `test should not be able to stake twice in a same round`() {
         ErrorsPool.AlreadyStakedInThatRound,
         validator,
         pool,
-        elector.address,
         elections,
         stakes.minStake * 2,
     );
@@ -396,7 +385,6 @@ get fun `test should not allow to stake before the elections started`() {
         ErrorsPool.ElectionsNotStarted,
         validator,
         pool,
-        elector.address,
         0,
         stakes.minStake * 2,
     );
@@ -421,7 +409,6 @@ get fun `test should not allow to stake after the elections ended`() {
         ErrorsPool.ElectionsAlreadyEnded,
         validator,
         pool,
-        elector.address,
         0,
         stakes.minStake * 2,
     );
@@ -484,7 +471,6 @@ get fun `test new stake should treat pending amounts as not available when allow
         ErrorsPool.NotEnoughPoolBalance,
         additionalValidator,
         pool,
-        elector.address,
         elections,
         validatorsSettings.minTonPerValidator,
     );
@@ -529,7 +515,6 @@ get fun `test pool should account for slashing reserves from owner share`() {
         ErrorsPool.OwnerShareIsUndercapitalized,
         otherValidator,
         pool,
-        elector.address,
         elections,
         stake,
     );
@@ -839,7 +824,6 @@ get fun `test new stake should reject if round closed during rotation`() {
         ErrorsPool.RoundIsClosed,
         validator,
         pool,
-        elector.address,
         elections,
         testStake,
     );

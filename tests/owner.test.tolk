@@ -282,7 +282,6 @@ get fun `test if validator has stake, it will get banned, instead of being remov
         ErrorsPool.ValidatorNotFound,
         testValidator,
         pool,
-        elector.address,
         elections,
         testStake,
     );
