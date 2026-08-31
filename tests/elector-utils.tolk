@@ -30,6 +30,15 @@ struct (0x53) ValidatorDescr {
     weight: uint64
 }
 
+struct (0x4e73744b) NewStakeDirect {
+    queryId: uint64
+    publicKey: uint256
+    stakeAt: uint32
+    maxFactor: uint32
+    adnl: uint256
+    signature: Cell<ValidatorSignature>
+}
+
 struct (0x12) ValidaorSet {
     utimeSince: uint32
     utimeUntil: uint32

@@ -66,15 +66,6 @@ struct (0x4e73744b) NewStakeElector {
     body: RemainingBitsAndRefs
 }
 
-struct (0x4e73744b) NewStakeDirect {
-    queryId: uint64
-    publicKey: uint256
-    stakeAt: uint32
-    maxFactor: uint32
-    adnl: uint256
-    signature: Cell<ValidatorSignature>
-}
-
 struct (0xf374484c) NewStakeOk {
     queryId: uint64
     answer: uint32
