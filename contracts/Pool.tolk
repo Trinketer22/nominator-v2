@@ -635,6 +635,9 @@ fun onInternalMessage(in: InMessage) {
 
                     storage.poolSupply = max(storage.poolSupply - nmData.pendingWithdrawal, 0);
                     storage.nominatorsAmount = max(storage.nominatorsAmount - sharePrice, 0);
+                    if (storage.poolSupply == 0) {
+                        storage.nominatorsAmount = 0;
+                    }
 
                     if (nmData.share > 0 || nmData.pendingDeposit > 0) {
                         // May happen in reward withdrawal

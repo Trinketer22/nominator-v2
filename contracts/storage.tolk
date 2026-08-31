@@ -34,6 +34,12 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
             if (!nominators.nominatorsWhitelist.isEmpty()) {
                 assert(nominators.nominatorsWhitelist.exists(sender), ErrorsPool.DepositNotAllowed);
             }
+            val nmShare = calcSharePrice(
+                incommingValue,
+                self.poolSupply,
+                self.nominatorsAmount,
+            );
+            assert(nmShare > 0, ErrorsPool.NothingToDeposit);
             val prevRound = lazy validators.prevRound.load();
 
             val hasPrevUsage = !prevRound.users.isEmpty();
@@ -76,11 +82,6 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
                 nominators.pendingDeposits = pendingDeposits.toCell();
                 self.pendingDeposits += incommingValue;
             } else {
-                val nmShare = calcSharePrice(
-                    incommingValue,
-                    self.poolSupply,
-                    self.nominatorsAmount,
-                );
                 var newNominator: Nominator = {
                     tonAmount: incommingValue,
                     share: nmShare,
@@ -147,6 +148,9 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
                 nominators.poolNominators.delete(sender);
                 self.poolSupply -= withdrawnShares;
                 self.nominatorsAmount -= shareValue;
+                if (self.poolSupply == 0) {
+                    self.nominatorsAmount = 0;
+                }
             } else {
                 self.pendingWithdrawals += withdrawnShares;
                 nominators.pendingWithdrawals = pending;
@@ -194,6 +198,9 @@ fun Storage.handleTextComment(mutate self, comment: slice, sender: address, valu
             if (pending == null) {
                 self.poolSupply -= shareDelta;
                 self.nominatorsAmount -= rewardAmount;
+                if (self.poolSupply == 0) {
+                    self.nominatorsAmount = 0;
+                }
             } else {
                 self.pendingWithdrawals += shareDelta;
                 nominators.pendingWithdrawals = pending;
