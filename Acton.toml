@@ -1,7 +1,7 @@
 [package]
 name = "nominator-v2"
-description = "A TON blockchain project"
-version = "1.0.0"
+description = "TON Nominator pool v2 smart contract"
+version = "2.0.0"
 license = "MIT"
 
 [toolchain]
