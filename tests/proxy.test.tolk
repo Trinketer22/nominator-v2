@@ -124,27 +124,22 @@ get fun `test NewStake from pool forwards full value and executes on proxy balan
     expect(balanceAfterInit as int).toBeApproxEqAbs(PROXY_MIN_STORAGE, ton("0.05"));
 
     val stakeValue = ton("1");
-    val stakeRes = proxy.sendNewStake(
+    val stakeRes = proxy.sendNewStakeElector(
         pool.address,
         DEFAULT_QUERY_ID,
-        stakeValue,
         beginCell().storeUint(0, 32).endCell().beginParse(),
         { value: stakeValue, bounce: true },
     );
 
-    val forwardedStakeTx = stakeRes.findTransaction<NewStake>({
+    expect(stakeRes).toHaveSuccessfulTx<NewStakeElector>({
         from: proxy.address,
+        value: stakeValue,
         to: electorAddr,
     });
-    val inStakeTx = stakeRes.findTransaction<NewStake>({
+    expect(stakeRes).toHaveSuccessfulTx<NewStakeElector>({
         from: pool.address,
         to: proxy.address,
     });
-    expect(forwardedStakeTx != null).toBeTrue();
-    expect(inStakeTx != null).toBeTrue();
-    val forwardedStakeMsg = forwardedStakeTx!.loadInMsg<NewStake>();
-    expect(getInternalMessageValue(forwardedStakeMsg.info).grams).toEqual(stakeValue);
-    expect(getTxComputePh(inStakeTx!).gasFees).toBeGreater(0);
     val balanceAfterNewStake = testing.getAccountBalance(proxy.address);
     expect(balanceAfterNewStake).toBeLess(balanceAfterInit);
     expect(balanceAfterNewStake).toBeGreater(PROXY_MIN_STORAGE / 2);
@@ -244,10 +239,9 @@ get fun `test NewStakeError with enough value replenishes proxy balance`() {
 
     // 10 NewStakes are forwarded to elector (PAY_FEES_SEPARATELY uses proxy reserve for gas)
     repeat (10) {
-        val stakeRes = proxy.sendNewStake(
+        val stakeRes = proxy.sendNewStakeElector(
             pool.address,
             DEFAULT_QUERY_ID,
-            ton("1"),
             beginCell().storeUint(0, 32).endCell().beginParse(),
             { value: ton("1"), bounce: true },
         );
@@ -287,10 +281,9 @@ get fun `test RecoverStakeOk with enough value replenishes proxy storage reserve
     };
 
     // Spend some reserve first, so replenishment is meaningful.
-    proxy.sendNewStake(
+    proxy.sendNewStakeElector(
         pool.address,
         DEFAULT_QUERY_ID,
-        ton("1"),
         beginCell().storeUint(0, 32).endCell().beginParse(),
         { value: ton("1"), bounce: true },
     );
@@ -390,10 +383,9 @@ get fun `test if timestamp is below mc timestamp return RecoverStakeError`() {
 
 get fun `test bounced NewStake should be forwarded to pool as NewStakeError`() {
     val (proxy, _validator, _otherWallet, pool, electorAddr) = setupProxyTestContext();
-    val newStake = NewStake {
+    val newStake = NewStakeElector {
         queryId: DEFAULT_QUERY_ID,
-        value: ton("100000"),
-        signedBody: "test".beginParse(),
+        body: "test".beginParse(),
     };
 
     val bouncedBody = beginCell()
