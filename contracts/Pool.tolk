@@ -14,7 +14,7 @@ import "utils"
 
 contract NominatorPool {
     author: "TON Core"
-    version: "1.0.0"
+    version: "2.0.0"
     description: "Nominator pool contract"
     storage: Storage
     storageAtDeployment: PoolStorageNotInitialized

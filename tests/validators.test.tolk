@@ -1560,6 +1560,66 @@ get fun `test should unfreeze frozen proxy by recoverStake`() {
     expect(res).toHaveSuccessfulTx({ from: elector.address, to: expectedProxyAddress });
 }
 
+get fun `test that recover stake can't burn balance`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, notOwner, validator, _nominators) = setupPoolWithNominators(20);
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+
+    waitTillRecovery(pool, validator, elector.address);
+    val balanceBefore = testing.getAccountBalance(pool.address);
+
+    repeat (10) {
+        val cursor = testing.createTraceIterationCursor(
+            validator,
+            createMessage<RecoverStakeCompat>({
+                bounce: true,
+                dest: pool.address,
+                value: ton("0.5"),
+                body: RecoverStakeCompat { queryId: DEFAULT_QUERY_ID },
+            }),
+        );
+        cursor.executeTill<RecoverStakeCompat>({ to: elector.address });
+    }
+    expect(testing.getAccountBalance(pool.address)).toBeGreaterOrEqual(balanceBefore);
+
+    // Now for unrestricted branch
+    repeat (10) {
+        val cursor = testing.createTraceIterationCursor(
+            validator,
+            createMessage<RecoverStakeUnrestricted>({
+                bounce: true,
+                dest: pool.address,
+                value: ton("0.5"),
+                body: RecoverStakeUnrestricted {
+                    validator,
+                    amount: ton("0.1"),
+                    queryId: DEFAULT_QUERY_ID,
+                },
+            }),
+        );
+        cursor.executeTill<RecoverStakeCompat>({ to: elector.address });
+    }
+    expect(testing.getAccountBalance(pool.address)).toBeGreaterOrEqual(balanceBefore);
+}
+
 get fun `test new stake should bounce from the frozen proxy`() {
     val (elector, stakes, _limits) = setupElector();
     val (pool, _owner, _notOwner, validator, _nominators) = setupPoolWithNominators(20);
