@@ -2569,6 +2569,108 @@ get fun `test that pending operations can only be claimed once`() {
     expect(balanceAfter).toBeGreaterOrEqual(balanceBefore);
 }
 
+get fun `test pending operations can only be claimed from item address`() {
+    val (elector, stakes, limits) = setupElector();
+    val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(40);
+
+    var testNominators = nominators;
+
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        false,
+    );
+    runRound(
+        pool,
+        elector,
+        stakes,
+        limits,
+        validator,
+        0,
+        true,
+    );
+
+    val poolBefore = pool.getPoolData();
+    val testNominator = testNominators.popHead();
+    val depositor = testNominators.popHead();
+    val nmData = pool.getNominatorData(testNominator.getWorkchainAndHash().1);
+
+    var (withdrawalItem, _sharesBurned) = assertDelayedOperation(pool, testNominator, true);
+    var (depositItem, _) = assertDelayedOperation(pool, depositor, false);
+
+    val balanceBefore = testing.getAccountBalance(pool.address);
+    val stateBefore = getAccountData(pool.address);
+    val withdrawalMsg = createMessage({
+        dest: pool.address,
+        value: ton("0.1"),
+        bounce: false,
+        body: PayoutBurnNotification {
+            owner: testNominator,
+            queryId: 0,
+            isWithdrawal: true,
+            index: 1,
+            roundIndex: 1,
+            distribution: {
+                pendingShare: poolBefore.poolSupply,
+                pendingCoins: poolBefore.nominatorsAmount,
+            },
+        },
+    });
+
+    val depositMsg = createMessage({
+        dest: pool.address,
+        value: ton("0.1"),
+        bounce: false,
+        body: PayoutBurnNotification {
+            owner: depositor,
+            queryId: 0,
+            isWithdrawal: false,
+            index: 1, // Same index because deposit and withdrawal have separate indexes
+            roundIndex: 1,
+            distribution: {
+                pendingShare: poolBefore.poolSupply,
+                pendingCoins: poolBefore.nominatorsAmount,
+            },
+        },
+    });
+
+    var res = net.send(testNominator, withdrawalMsg);
+    expect(
+        res,
+    ).toHaveFailedTx<PayoutBurnNotification>({ from: testNominator, to: pool.address, exitCode: ErrorsPayout.InvalidSender });
+    expect(res).toNotHaveTx<WithdrawSuccess>({ from: pool.address });
+    expect(testing.getAccountBalance(pool.address)).toBeGreaterOrEqual(balanceBefore);
+    expect(stateBefore).toEqual(getAccountData(pool.address));
+
+    res = net.send(depositor, depositMsg);
+    expect(
+        res,
+    ).toHaveFailedTx<PayoutBurnNotification>({ from: depositor, to: pool.address, exitCode: ErrorsPayout.InvalidSender });
+    expect(testing.getAccountBalance(pool.address)).toBeGreaterOrEqual(balanceBefore);
+    expect(stateBefore).toEqual(getAccountData(pool.address));
+
+    // Bonus check that withdrawal msg can't be sent from deposit item and vica-versa
+    res = net.send(depositItem.address, withdrawalMsg);
+    expect(
+        res,
+    ).toHaveFailedTx<PayoutBurnNotification>({ from: depositItem.address, to: pool.address, exitCode: ErrorsPayout.InvalidSender });
+    expect(res).toNotHaveTx<WithdrawSuccess>({ from: pool.address });
+    expect(testing.getAccountBalance(pool.address)).toBeGreaterOrEqual(balanceBefore);
+    expect(stateBefore).toEqual(getAccountData(pool.address));
+
+    res = net.send(withdrawalItem.address, depositMsg);
+    expect(
+        res,
+    ).toHaveFailedTx<PayoutBurnNotification>({ from: withdrawalItem.address, to: pool.address, exitCode: ErrorsPayout.InvalidSender });
+    expect(res).toNotHaveTx<WithdrawSuccess>({ from: pool.address });
+    expect(testing.getAccountBalance(pool.address)).toBeGreaterOrEqual(balanceBefore);
+    expect(stateBefore).toEqual(getAccountData(pool.address));
+}
+
 get fun `test pending withdrawal triggered with less than WITHDRAWAL_GAS should be rejected`() {
     val (elector, stakes, limits) = setupElector();
     val (pool, _owner, _notOwner, validator, nominators) = setupPoolWithNominators(100);
